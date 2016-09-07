@@ -4,6 +4,7 @@ OBJS += x86/cpu.o                                                       \
         x86/imgutils_init.o                                             \
         x86/lls_init.o                                                  \
 
+OBJS-$(CONFIG_VAAPI) += x86/fastcopy_init.o
 OBJS-$(CONFIG_PIXELUTILS) += x86/pixelutils_init.o                      \
 
 EMMS_OBJS_$(HAVE_MMX_INLINE)_$(HAVE_MMX_EXTERNAL)_$(HAVE_MM_EMPTY) = x86/emms.o
@@ -15,4 +16,5 @@ YASM-OBJS += x86/cpuid.o                                                \
              x86/imgutils.o                                             \
              x86/lls.o                                                  \
 
+YASM-OBJS-$(CONFIG_VAAPI) += x86/fastcopy.o
 YASM-OBJS-$(CONFIG_PIXELUTILS) += x86/pixelutils.o                      \
