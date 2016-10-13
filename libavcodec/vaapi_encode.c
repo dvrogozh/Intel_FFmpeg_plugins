@@ -1034,6 +1034,7 @@ static av_cold int vaapi_encode_config_attributes(AVCodecContext *avctx)
             };
             break;
         case VAConfigAttribRateControl:
+#ifdef VPG_DRIVER
             // Hack for backward compatibility: CBR was the only
             // usable RC mode for a long time, so old drivers will
             // only have it.  Normal default options may now choose
@@ -1041,18 +1042,17 @@ static av_cold int vaapi_encode_config_attributes(AVCodecContext *avctx)
             // CBR if that is the only supported mode.
             if (ctx->va_rc_mode == VA_RC_VBR &&
                 !(attr[i].value & VA_RC_VBR) &&
-                (attr[i].value & VA_RC_CBR)) {
+                (attr[i].value & VA_RC_CBR) &&
+                ctx->va_profile != VAProfileJPEGBaseline) {
+#else
+            if (ctx->va_rc_mode == VA_RC_VBR &&
+                            !(attr[i].value & VA_RC_VBR) &&
+                            (attr[i].value & VA_RC_CBR)) {
+#endif
                 av_log(avctx, AV_LOG_WARNING, "VBR rate control is "
                        "not supported with this driver version; "
                        "using CBR instead.\n");
                 ctx->va_rc_mode = VA_RC_CBR;
-            }
-            if (!(ctx->va_rc_mode & attr[i].value)) {
-                av_log(avctx, AV_LOG_ERROR, "Rate control mode %#x "
-                       "is not supported (mask: %#x).\n",
-                       ctx->va_rc_mode, attr[i].value);
-                err = AVERROR(EINVAL);
-                goto fail;
             }
             ctx->config_attributes[ctx->nb_config_attributes++] =
                 (VAConfigAttrib) {

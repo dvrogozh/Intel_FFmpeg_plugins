@@ -371,10 +371,10 @@ static VAAPIEncodeType vaapi_encode_type_mjpeg = {
 
     .slice_params_size     = sizeof(VAEncSliceParameterBufferJPEG),
     .init_slice_params     = &vaapi_encode_mjpeg_init_slice_params,
-
+#ifndef VPG_DRIVER
     .slice_header_type     = VAEncPackedHeaderRawData,
     .write_slice_header    = &vaapi_encode_mjpeg_write_image_header,
-
+#endif
     .write_extra_buffer    = &vaapi_encode_mjpeg_write_extra_buffer,
 };
 
