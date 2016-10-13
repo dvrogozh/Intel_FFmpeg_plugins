@@ -818,9 +818,13 @@ static int vaapi_encode_h265_init_sequence_params(AVCodecContext *avctx)
         vseq->log2_min_transform_block_size_minus2 = 0;
         vseq->log2_diff_max_min_transform_block_size = 3;
         // Full transform hierarchy allowed (2-5).
+#ifdef VPG_DRIVER
+        vseq->max_transform_hierarchy_depth_inter = 2;
+        vseq->max_transform_hierarchy_depth_intra = 2;
+#else
         vseq->max_transform_hierarchy_depth_inter = 3;
         vseq->max_transform_hierarchy_depth_intra = 3;
-
+#endif
         vseq->vui_parameters_present_flag = 0;
 
         vseq->bits_per_second = avctx->bit_rate;
@@ -1057,9 +1061,16 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
     case PICTURE_TYPE_I:
         vslice->slice_type = HEVC_SLICE_I;
         break;
+#ifndef VPG_DRIVER
     case PICTURE_TYPE_P:
         vslice->slice_type = HEVC_SLICE_P;
         break;
+#else
+    // Workaround, VPG driver only supports GPB frame instead P frame
+    case PICTURE_TYPE_P:
+        vslice->slice_type = B_SLICE;
+        break;
+#endif
     case PICTURE_TYPE_B:
         vslice->slice_type = HEVC_SLICE_B;
         break;
@@ -1086,6 +1097,11 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
 
         vslice->num_ref_idx_l0_active_minus1 = 0;
         vslice->ref_pic_list0[0] = vpic->reference_frames[0];
+#ifdef VPG_DRIVER
+        // Workaround, VPG driver only supports GPB frame instead P frame
+        if (pic->type == PICTURE_TYPE_P)
+            vslice->ref_pic_list1[0] = vpic->reference_frames[0];
+#endif
     }
     if (pic->nb_refs >= 2) {
         // Forward reference for B-frame.
