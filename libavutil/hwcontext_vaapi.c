@@ -831,13 +831,24 @@ static int vaapi_map_frame(AVHWFramesContext *hwfc,
     dst->height = src->height;
 
     plane_size = map->image.data_size;
-    dst->opaque = av_malloc(FFMAX(map->image.width * map->image.height * 3, plane_size));
+    if (flags != VAAPI_MAP_WRITE) {
+        uint8_t *addr_dst;
+        dst->opaque = av_malloc(FFMAX(map->image.width * map->image.height * 3, plane_size));
 
-    vaapi_copy_from_uswc((void *)dst->opaque, (void *)address, plane_size);
+        if (vaapi_copy_from_uswc((void *)dst->opaque, (void *)address, plane_size) == NULL)
+            addr_dst = address;
+        else
+            addr_dst = dst->opaque;
 
-    for (i = 0; i < map->image.num_planes; i++) {
-        dst->data[i] = (uint8_t*)dst->opaque + map->image.offsets[i];
-        dst->linesize[i] = map->image.pitches[i];
+        for (i = 0; i < map->image.num_planes; i++) {
+            dst->data[i] = addr_dst + map->image.offsets[i];
+            dst->linesize[i] = map->image.pitches[i];
+        }
+    } else {
+        for (i = 0; i < map->image.num_planes; i++) {
+            dst->data[i] = (uint8_t*)address + map->image.offsets[i];
+            dst->linesize[i] = map->image.pitches[i];
+        }
     }
     if (
 #ifdef VA_FOURCC_YV16
