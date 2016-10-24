@@ -107,6 +107,15 @@ struct attribute_deprecated vaapi_context {
     uint32_t bitplane_buf_id;
 
     /**
+     * VAProbabilityBuffer ID (for VP-8 decoding)
+     *
+     * - encoding: unused
+     * - decoding: Set by libavcodec
+     */
+    attribute_deprecated
+    uint32_t prob_buf_id;
+
+    /**
      * Slice parameter/data buffer IDs
      *
      * - encoding: unused
