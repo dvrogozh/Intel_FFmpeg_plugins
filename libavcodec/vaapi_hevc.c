@@ -31,11 +31,25 @@
 typedef struct VAAPIDecodePictureHEVC {
     VAPictureParameterBufferHEVC pic_param;
     VASliceParameterBufferHEVC last_slice_param;
+#ifdef VPG_DRIVER
+    VASliceParameterBufferHEVC *slice_param_ptr;
+    int slice_count;
+    unsigned int slice_params_alloc;
+#endif
     const uint8_t *last_buffer;
     size_t         last_size;
 
     VAAPIDecodePicture pic;
 } VAAPIDecodePictureHEVC;
+
+#ifdef VPG_DRIVER
+int ff_vaapi_decode_make_slice_buffer_vpg(AVCodecContext *avctx,
+                                      VAAPIDecodePicture *pic,
+                                      const void *params_data,
+                                      size_t params_size,
+                                      const void *slice_data,
+                                      size_t slice_size);
+#endif
 
 static void init_vaapi_pic(VAPictureHEVC *va_pic)
 {
@@ -107,6 +121,76 @@ static void fill_vaapi_reference_frames(const HEVCContext *h, VAPictureParameter
     }
 }
 
+static void fill_pred_weight_table(const HEVCContext *h,
+                                   const SliceHeader *sh,
+                                   VASliceParameterBufferHEVC *slice_param)
+{
+    int i;
+
+    memset(slice_param->delta_luma_weight_l0,   0, sizeof(slice_param->delta_luma_weight_l0));
+    memset(slice_param->delta_luma_weight_l1,   0, sizeof(slice_param->delta_luma_weight_l1));
+    memset(slice_param->luma_offset_l0,         0, sizeof(slice_param->luma_offset_l0));
+    memset(slice_param->luma_offset_l1,         0, sizeof(slice_param->luma_offset_l1));
+    memset(slice_param->delta_chroma_weight_l0, 0, sizeof(slice_param->delta_chroma_weight_l0));
+    memset(slice_param->delta_chroma_weight_l1, 0, sizeof(slice_param->delta_chroma_weight_l1));
+    memset(slice_param->ChromaOffsetL0,         0, sizeof(slice_param->ChromaOffsetL0));
+    memset(slice_param->ChromaOffsetL1,         0, sizeof(slice_param->ChromaOffsetL1));
+
+    slice_param->delta_chroma_log2_weight_denom = 0;
+    slice_param->luma_log2_weight_denom         = 0;
+
+    if (sh->slice_type == HEVC_SLICE_I ||
+        (sh->slice_type == HEVC_SLICE_P && !h->ps.pps->weighted_pred_flag) ||
+        (sh->slice_type == HEVC_SLICE_B && !h->ps.pps->weighted_bipred_flag))
+        return;
+
+    slice_param->luma_log2_weight_denom = sh->luma_log2_weight_denom;
+
+    if (h->ps.sps->chroma_format_idc) {
+        slice_param->delta_chroma_log2_weight_denom = sh->chroma_log2_weight_denom - sh->luma_log2_weight_denom;
+    }
+
+    for (i = 0; i < 15 && i < sh->nb_refs[L0]; i++) {
+        slice_param->delta_luma_weight_l0[i] = sh->luma_weight_l0[i] - (1 << sh->luma_log2_weight_denom);
+        slice_param->luma_offset_l0[i] = sh->luma_offset_l0[i];
+        slice_param->delta_chroma_weight_l0[i][0] = sh->chroma_weight_l0[i][0] - (1 << sh->chroma_log2_weight_denom);
+        slice_param->delta_chroma_weight_l0[i][1] = sh->chroma_weight_l0[i][1] - (1 << sh->chroma_log2_weight_denom);
+        slice_param->ChromaOffsetL0[i][0] = sh->chroma_offset_l0[i][0];
+        slice_param->ChromaOffsetL0[i][1] = sh->chroma_offset_l0[i][1];
+    }
+
+    if (sh->slice_type == HEVC_SLICE_B) {
+        for (i = 0; i < 15 && i < sh->nb_refs[L1]; i++) {
+            slice_param->delta_luma_weight_l1[i] = sh->luma_weight_l1[i] - (1 << sh->luma_log2_weight_denom);
+            slice_param->luma_offset_l1[i] = sh->luma_offset_l1[i];
+            slice_param->delta_chroma_weight_l1[i][0] = sh->chroma_weight_l1[i][0] - (1 << sh->chroma_log2_weight_denom);
+            slice_param->delta_chroma_weight_l1[i][1] = sh->chroma_weight_l1[i][1] - (1 << sh->chroma_log2_weight_denom);
+            slice_param->ChromaOffsetL1[i][0] = sh->chroma_offset_l1[i][0];
+            slice_param->ChromaOffsetL1[i][1] = sh->chroma_offset_l1[i][1];
+        }
+    }
+}
+
+static uint8_t get_ref_pic_index(const HEVCContext *h, const HEVCFrame *frame)
+{
+    VAAPIDecodePictureHEVC *pic = h->ref->hwaccel_picture_private;
+    VAPictureParameterBufferHEVC *pp = &pic->pic_param;
+    uint8_t i;
+
+    if (!frame)
+        return 0xff;
+
+    for (i = 0; i < FF_ARRAY_ELEMS(pp->ReferenceFrames); i++) {
+        VASurfaceID pid = pp->ReferenceFrames[i].picture_id;
+        int poc = pp->ReferenceFrames[i].pic_order_cnt;
+        if (pid != VA_INVALID_ID && pid == ff_vaapi_get_surface_id(frame->frame) && poc == frame->poc)
+            return i;
+    }
+
+    return 0xff;
+}
+
+/** Initialize and start decoding a frame with VA API. */
 static int vaapi_hevc_start_frame(AVCodecContext          *avctx,
                                   av_unused const uint8_t *buffer,
                                   av_unused uint32_t       size)
@@ -253,6 +337,7 @@ fail:
     return err;
 }
 
+/** End a hardware decoding based frame. */
 static int vaapi_hevc_end_frame(AVCodecContext *avctx)
 {
     const HEVCContext        *h = avctx->priv_data;
@@ -261,9 +346,17 @@ static int vaapi_hevc_end_frame(AVCodecContext *avctx)
 
     if (pic->last_size) {
         pic->last_slice_param.LongSliceFlags.fields.LastSliceOfPic = 1;
+#ifdef VPG_DRIVER
+        ret = ff_vaapi_decode_make_slice_buffer_vpg(avctx, &pic->pic,
+                                                pic->slice_param_ptr, sizeof(pic->last_slice_param),
+                                                pic->last_buffer, pic->last_size);
+        pic->slice_params_alloc  = 0;
+        pic->last_size           = 0;
+#else
         ret = ff_vaapi_decode_make_slice_buffer(avctx, &pic->pic,
                                                 &pic->last_slice_param, sizeof(pic->last_slice_param),
                                                 pic->last_buffer, pic->last_size);
+#endif
         if (ret < 0)
             goto fail;
     }
@@ -279,75 +372,152 @@ fail:
     return ret;
 }
 
-static void fill_pred_weight_table(const HEVCContext *h,
-                                   const SliceHeader *sh,
-                                   VASliceParameterBufferHEVC *slice_param)
+#ifdef VPG_DRIVER
+#define SC_LEN 3 ///< start code "0x00 0x00 0x01" length
+static VASliceParameterBufferBase *alloc_slice(VAAPIDecodePictureHEVC *pic, const uint8_t *buffer, uint32_t size)
 {
-    int i;
+    uint8_t *slice_params;
+    VASliceParameterBufferBase *slice_param;
 
-    memset(slice_param->delta_luma_weight_l0,   0, sizeof(slice_param->delta_luma_weight_l0));
-    memset(slice_param->delta_luma_weight_l1,   0, sizeof(slice_param->delta_luma_weight_l1));
-    memset(slice_param->luma_offset_l0,         0, sizeof(slice_param->luma_offset_l0));
-    memset(slice_param->luma_offset_l1,         0, sizeof(slice_param->luma_offset_l1));
-    memset(slice_param->delta_chroma_weight_l0, 0, sizeof(slice_param->delta_chroma_weight_l0));
-    memset(slice_param->delta_chroma_weight_l1, 0, sizeof(slice_param->delta_chroma_weight_l1));
-    memset(slice_param->ChromaOffsetL0,         0, sizeof(slice_param->ChromaOffsetL0));
-    memset(slice_param->ChromaOffsetL1,         0, sizeof(slice_param->ChromaOffsetL1));
+    slice_params =
+        av_fast_realloc(pic->slice_param_ptr,
+                        &pic->slice_params_alloc,
+                        (pic->slice_count + 1) * sizeof(VASliceParameterBufferHEVC));
+    if (!slice_params)
+        return NULL;
+    pic->slice_param_ptr = slice_params;
 
-    slice_param->delta_chroma_log2_weight_denom = 0;
-    slice_param->luma_log2_weight_denom         = 0;
-
-    if (sh->slice_type == HEVC_SLICE_I ||
-        (sh->slice_type == HEVC_SLICE_P && !h->ps.pps->weighted_pred_flag) ||
-        (sh->slice_type == HEVC_SLICE_B && !h->ps.pps->weighted_bipred_flag))
-        return;
-
-    slice_param->luma_log2_weight_denom = sh->luma_log2_weight_denom;
-
-    if (h->ps.sps->chroma_format_idc) {
-        slice_param->delta_chroma_log2_weight_denom = sh->chroma_log2_weight_denom - sh->luma_log2_weight_denom;
-    }
-
-    for (i = 0; i < 15 && i < sh->nb_refs[L0]; i++) {
-        slice_param->delta_luma_weight_l0[i] = sh->luma_weight_l0[i] - (1 << sh->luma_log2_weight_denom);
-        slice_param->luma_offset_l0[i] = sh->luma_offset_l0[i];
-        slice_param->delta_chroma_weight_l0[i][0] = sh->chroma_weight_l0[i][0] - (1 << sh->chroma_log2_weight_denom);
-        slice_param->delta_chroma_weight_l0[i][1] = sh->chroma_weight_l0[i][1] - (1 << sh->chroma_log2_weight_denom);
-        slice_param->ChromaOffsetL0[i][0] = sh->chroma_offset_l0[i][0];
-        slice_param->ChromaOffsetL0[i][1] = sh->chroma_offset_l0[i][1];
-    }
-
-    if (sh->slice_type == HEVC_SLICE_B) {
-        for (i = 0; i < 15 && i < sh->nb_refs[L1]; i++) {
-            slice_param->delta_luma_weight_l1[i] = sh->luma_weight_l1[i] - (1 << sh->luma_log2_weight_denom);
-            slice_param->luma_offset_l1[i] = sh->luma_offset_l1[i];
-            slice_param->delta_chroma_weight_l1[i][0] = sh->chroma_weight_l1[i][0] - (1 << sh->chroma_log2_weight_denom);
-            slice_param->delta_chroma_weight_l1[i][1] = sh->chroma_weight_l1[i][1] - (1 << sh->chroma_log2_weight_denom);
-            slice_param->ChromaOffsetL1[i][0] = sh->chroma_offset_l1[i][0];
-            slice_param->ChromaOffsetL1[i][1] = sh->chroma_offset_l1[i][1];
-        }
-    }
+    slice_param = (VASliceParameterBufferBase *)(slice_params + pic->slice_count * sizeof(VASliceParameterBufferHEVC));
+    pic->slice_count++;
+    return slice_param;
 }
 
-static uint8_t get_ref_pic_index(const HEVCContext *h, const HEVCFrame *frame)
+static int vaapi_hevc_decode_slice(AVCodecContext *avctx,
+                                   const uint8_t  *buffer,
+                                   uint32_t        size)
 {
+    const HEVCContext        *h = avctx->priv_data;
+    const SliceHeader       *sh = &h->sh;
     VAAPIDecodePictureHEVC *pic = h->ref->hwaccel_picture_private;
-    VAPictureParameterBufferHEVC *pp = &pic->pic_param;
-    uint8_t i;
+    VASliceParameterBufferHEVC *slice_param_ptr;
 
-    if (!frame)
-        return 0xff;
+    int nb_list = (sh->slice_type == HEVC_SLICE_B) ?
+                  2 : (sh->slice_type == HEVC_SLICE_I ? 0 : 1);
 
-    for (i = 0; i < FF_ARRAY_ELEMS(pp->ReferenceFrames); i++) {
-        VASurfaceID pid = pp->ReferenceFrames[i].picture_id;
-        int poc = pp->ReferenceFrames[i].pic_order_cnt;
-        if (pid != VA_INVALID_ID && pid == ff_vaapi_get_surface_id(frame->frame) && poc == frame->poc)
-            return i;
+    int i, list_idx;
+    if (!sh->first_slice_in_pic_flag) {
+        ++pic->pic.nb_slices;
+    }
+    /* Fill in VASliceParameterBufferHEVC. */
+    slice_param_ptr = (VASliceParameterBufferHEVC *)alloc_slice(pic, buffer, size);
+
+    pic->last_slice_param = (VASliceParameterBufferHEVC) {
+        .slice_data_size               = size + SC_LEN,
+        .slice_data_offset             = pic->last_size,
+        .slice_data_flag               = VA_SLICE_DATA_FLAG_ALL,
+        /* Add 1 to the bits count here to account for the byte_alignment bit, which
+         * always is at least one bit and not accounted for otherwise. */
+        .slice_data_byte_offset        = (get_bits_count(&h->HEVClc->gb) + 1 + 7) / 8 + SC_LEN,
+        .slice_segment_address         = sh->slice_segment_addr,
+        .slice_qp_delta                = sh->slice_qp_delta,
+        .slice_cb_qp_offset            = sh->slice_cb_qp_offset,
+        .slice_cr_qp_offset            = sh->slice_cr_qp_offset,
+        .slice_beta_offset_div2        = sh->beta_offset / 2,
+        .slice_tc_offset_div2          = sh->tc_offset / 2,
+        .collocated_ref_idx            = sh->slice_temporal_mvp_enabled_flag ? sh->collocated_ref_idx : 0xFF,
+        .five_minus_max_num_merge_cand = sh->slice_type == HEVC_SLICE_I ? 0 : 5 - sh->max_num_merge_cand,
+        .num_ref_idx_l0_active_minus1  = sh->nb_refs[L0] ? sh->nb_refs[L0] - 1 : 0,
+        .num_ref_idx_l1_active_minus1  = sh->nb_refs[L1] ? sh->nb_refs[L1] - 1 : 0,
+
+        .LongSliceFlags.fields = {
+            .dependent_slice_segment_flag                 = sh->dependent_slice_segment_flag,
+            .slice_type                                   = sh->slice_type,
+            .color_plane_id                               = sh->colour_plane_id,
+            .mvd_l1_zero_flag                             = sh->mvd_l1_zero_flag,
+            .cabac_init_flag                              = sh->cabac_init_flag,
+            .slice_temporal_mvp_enabled_flag              = sh->slice_temporal_mvp_enabled_flag,
+            .slice_deblocking_filter_disabled_flag        = sh->disable_deblocking_filter_flag,
+            .collocated_from_l0_flag                      = sh->collocated_list == L0 ? 1 : 0,
+            .slice_loop_filter_across_slices_enabled_flag = sh->slice_loop_filter_across_slices_enabled_flag,
+            .slice_sao_luma_flag                          = sh->slice_sample_adaptive_offset_flag[0],
+            .slice_sao_chroma_flag                        = sh->slice_sample_adaptive_offset_flag[1],
+        },
+    };
+
+    memset(pic->last_slice_param.RefPicList, 0xFF, sizeof(pic->last_slice_param.RefPicList));
+
+    for (list_idx = 0; list_idx < nb_list; list_idx++) {
+        RefPicList *rpl = &h->ref->refPicList[list_idx];
+
+        for (i = 0; i < rpl->nb_refs; i++)
+            pic->last_slice_param.RefPicList[list_idx][i] = get_ref_pic_index(h, rpl->ref[i]);
     }
 
-    return 0xff;
+    fill_pred_weight_table(h, sh, &pic->last_slice_param);
+
+    memcpy(slice_param_ptr, &pic->last_slice_param, sizeof(pic->last_slice_param));
+
+    pic->last_buffer = !pic->last_buffer ? buffer - SC_LEN : pic->last_buffer;
+    pic->last_size  += size + SC_LEN;
+
+    return 0;
 }
 
+int ff_vaapi_decode_make_slice_buffer_vpg(AVCodecContext *avctx,
+                                      VAAPIDecodePicture *pic,
+                                      const void *params_data,
+                                      size_t params_size,
+                                      const void *slice_data,
+                                      size_t slice_size)
+{
+    VAAPIDecodeContext *ctx = avctx->internal->hwaccel_priv_data;
+    VAStatus vas;
+
+    pic->slices_allocated = 2;
+    pic->slice_buffers =
+        av_realloc_array(pic->slice_buffers,
+                         pic->slices_allocated,
+                         2 * sizeof(*pic->slice_buffers));
+    if (!pic->slice_buffers)
+        return AVERROR(ENOMEM);
+
+    vas = vaCreateBuffer(ctx->hwctx->display, ctx->va_context,
+                         VASliceParameterBufferType,
+                         params_size, pic->nb_slices + 1, (void*)params_data,
+                         &pic->slice_buffers[0]);
+    if (vas != VA_STATUS_SUCCESS) {
+        av_log(avctx, AV_LOG_ERROR, "Failed to create slice "
+               "parameter buffer: %d (%s).\n", vas, vaErrorStr(vas));
+        return AVERROR(EIO);
+    }
+
+    av_log(avctx, AV_LOG_DEBUG, "Slice %d param buffer (%zu bytes) "
+           "is %#x.\n", pic->nb_slices, params_size,
+           pic->slice_buffers[0]);
+
+    vas = vaCreateBuffer(ctx->hwctx->display, ctx->va_context,
+                         VASliceDataBufferType,
+                         slice_size, 1, (void*)slice_data,
+                         &pic->slice_buffers[1]);
+    if (vas != VA_STATUS_SUCCESS) {
+        av_log(avctx, AV_LOG_ERROR, "Failed to create slice "
+               "data buffer (size %zu): %d (%s).\n",
+               slice_size, vas, vaErrorStr(vas));
+        vaDestroyBuffer(ctx->hwctx->display,
+                        pic->slice_buffers[1]);
+        return AVERROR(EIO);
+    }
+
+    av_log(avctx, AV_LOG_DEBUG, "Slice %d data buffer (%zu bytes) "
+           "is %#x.\n", pic->nb_slices, slice_size,
+           pic->slice_buffers[1]);
+
+    ++pic->nb_slices;
+    pic->nb_param_buffers = 1;
+    pic->nb_slices = 1;
+    return 0;
+}
+#else
 static int vaapi_hevc_decode_slice(AVCodecContext *avctx,
                                    const uint8_t  *buffer,
                                    uint32_t        size)
@@ -360,7 +530,6 @@ static int vaapi_hevc_decode_slice(AVCodecContext *avctx,
                   2 : (sh->slice_type == HEVC_SLICE_I ? 0 : 1);
 
     int err, i, list_idx;
-
     if (!sh->first_slice_in_pic_flag) {
         err = ff_vaapi_decode_make_slice_buffer(avctx, &pic->pic,
                                                 &pic->last_slice_param, sizeof(pic->last_slice_param),
@@ -422,6 +591,7 @@ static int vaapi_hevc_decode_slice(AVCodecContext *avctx,
 
     return 0;
 }
+#endif
 
 AVHWAccel ff_hevc_vaapi_hwaccel = {
     .name                 = "hevc_vaapi",
