@@ -843,6 +843,7 @@ static int vaapi_map_frame(AVHWFramesContext *hwfc,
         for (i = 0; i < map->image.num_planes; i++) {
             dst->data[i] = addr_dst + map->image.offsets[i];
             dst->linesize[i] = map->image.pitches[i];
+            dst->data[i] += hwfc->top_offset[i] * dst->linesize[i] + hwfc->left_offset[i];
         }
     } else {
         for (i = 0; i < map->image.num_planes; i++) {

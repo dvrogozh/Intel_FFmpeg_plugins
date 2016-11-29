@@ -54,6 +54,7 @@
 #include "rectangle.h"
 #include "thread.h"
 #include "vdpau_compat.h"
+#include "libavutil/hwcontext.h"
 
 static int h264_decode_end(AVCodecContext *avctx);
 
@@ -869,7 +870,13 @@ static int output_frame(H264Context *h, AVFrame *dst, H264Picture *srcp)
         int off    = ((srcp->crop_left >> hshift) << h->pixel_shift) +
                       (srcp->crop_top  >> vshift) * dst->linesize[i];
         dst->data[i] += off;
+        if (dst->hw_frames_ctx) {
+            AVHWFramesContext *ctx = (AVHWFramesContext*)dst->hw_frames_ctx->data;
+            ctx->top_offset[i] = srcp->crop_top  >> vshift;
+            ctx->left_offset[i] = (srcp->crop_left >> hshift) << h->pixel_shift;
+        }
     }
+
     return 0;
 }
 

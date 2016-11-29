@@ -220,6 +220,12 @@ typedef struct AVHWFramesContext {
      * Must be set by the user before calling av_hwframe_ctx_init().
      */
     int width, height;
+
+    /**
+     * the top and left offset of the display frames
+    */
+    int top_offset[AV_NUM_DATA_POINTERS];
+    int left_offset[AV_NUM_DATA_POINTERS];
 } AVHWFramesContext;
 
 /**

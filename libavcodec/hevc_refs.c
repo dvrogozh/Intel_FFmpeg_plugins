@@ -29,6 +29,7 @@
 #include "hevc.h"
 #include "hevcdec.h"
 
+#include "libavutil/hwcontext.h"
 void ff_hevc_unref_frame(HEVCContext *s, HEVCFrame *frame, int flags)
 {
     /* frame->frame can be NULL if context init failed */
@@ -223,7 +224,13 @@ int ff_hevc_output_frame(HEVCContext *s, AVFrame *out, int flush)
                 int off = ((frame->window.left_offset >> hshift) << pixel_shift) +
                           (frame->window.top_offset   >> vshift) * dst->linesize[i];
                 dst->data[i] += off;
+                if (out->hw_frames_ctx) {
+                    AVHWFramesContext *ctx = (AVHWFramesContext*)out->hw_frames_ctx->data;
+                    ctx->top_offset[i] = frame->window.top_offset >> vshift;
+                    ctx->left_offset[i] = (frame->window.left_offset >> hshift) << pixel_shift;
+                }
             }
+
             av_log(s->avctx, AV_LOG_DEBUG,
                    "Output frame with POC %d.\n", frame->poc);
             return 1;
