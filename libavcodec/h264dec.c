@@ -864,7 +864,7 @@ static int output_frame(H264Context *h, AVFrame *dst, H264Picture *srcp)
     if (!srcp->crop)
         return 0;
 
-    for (i = 0; i < desc->nb_components; i++) {
+    for (i = 0; i < 3; i++) {
         int hshift = (i > 0) ? desc->log2_chroma_w : 0;
         int vshift = (i > 0) ? desc->log2_chroma_h : 0;
         int off    = ((srcp->crop_left >> hshift) << h->pixel_shift) +
