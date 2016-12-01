@@ -123,6 +123,14 @@ static int vaapi_encode_wait(AVCodecContext *avctx,
     av_frame_free(&pic->input_image);
 
     pic->encode_complete = 1;
+#ifdef VPG_DRIVER
+    {
+        int i;
+        for (i = 0; i < pic->nb_refs; i++) {
+            pic->refs[i]->ref_count --;
+        }
+    }
+#endif
     return 0;
 }
 
@@ -643,6 +651,38 @@ static int vaapi_encode_step(AVCodecContext *avctx,
     return 0;
 }
 
+#ifdef VPG_DRIVER
+static void vaapi_encode_add_reference (VAAPIEncodeContext *ctx,
+        VAAPIEncodePicture *pic)
+{
+    int i;
+
+    if (pic->type == PICTURE_TYPE_IDR) {
+        // clear the reference frame list
+        for (i = 0 ; i < ctx->ref_nr; i++) {
+           ctx->references[i]->ref_count --;
+           ctx->references[i] = NULL;
+        }
+        ctx->ref_nr = 0;
+    }
+
+    if (ctx->ref_nr == ctx->max_ref_nr) {
+        // remove the old reference frame
+        for (i = 0 ; i < ctx->ref_nr - 1; i++) {
+           ctx->references[i]->ref_count --;
+           ctx->references[i] = ctx->references[i+1];
+           ctx->references[i]->ref_count ++;
+        }
+        ctx->references[ctx->ref_nr-1]->ref_count--;
+        ctx->ref_nr --;
+    }
+
+    ctx->references[ctx->ref_nr] = pic;
+    ctx->references[ctx->ref_nr]->ref_count ++;
+    ctx->ref_nr++;
+}
+#endif
+
 static int vaapi_encode_get_next(AVCodecContext *avctx,
                                  VAAPIEncodePicture **pic_out)
 {
@@ -652,36 +692,74 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
 
     for (pic = ctx->pic_start; pic; pic = pic->next) {
         if (pic->next)
+#ifdef VPG_DRIVER
+            av_assert0(pic->display_order < pic->next->display_order);
+#else
             av_assert0(pic->display_order + 1 == pic->next->display_order);
+#endif
         if (pic->display_order == ctx->input_order) {
             *pic_out = pic;
             return 0;
         }
     }
 
+    if (ctx->input_order == 0) {
+        // First frame is always an IDR frame.
+        av_assert0(!ctx->pic_start && !ctx->pic_end);
+
+        pic = vaapi_encode_alloc();
+        if (!pic)
+            return AVERROR(ENOMEM);
+
+        pic->type = PICTURE_TYPE_IDR;
+        pic->display_order = 0;
+        pic->encode_order  = 0;
+
+        ctx->pic_start = ctx->pic_end = pic;
+
+#ifdef VPG_DRIVER
+        pic->ref_count = 0;
+        vaapi_encode_add_reference(ctx, pic);
+#endif
+        *pic_out = pic;
+        return 0;
+    }
     pic = vaapi_encode_alloc();
     if (!pic)
         return AVERROR(ENOMEM);
 
-    if (ctx->input_order == 0 || ctx->force_idr ||
-        ctx->gop_counter >= avctx->gop_size) {
-        pic->type = PICTURE_TYPE_IDR;
-        ctx->force_idr = 0;
-        ctx->gop_counter = 1;
-        ctx->p_counter = 0;
-    } else if (ctx->p_counter >= ctx->p_per_i) {
-        pic->type = PICTURE_TYPE_I;
-        ++ctx->gop_counter;
+#ifdef VPG_DRIVER
+    pic->ref_count = 0;
+#endif
+    if (ctx->p_per_i == 0 || ctx->p_counter == ctx->p_per_i) {
+        if (ctx->i_per_idr == 0 || ctx->i_counter == ctx->i_per_idr) {
+            pic->type = PICTURE_TYPE_IDR;
+            ctx->i_counter = 0;
+        } else {
+            pic->type = PICTURE_TYPE_I;
+            ++ctx->i_counter;
+        }
         ctx->p_counter = 0;
     } else {
         pic->type = PICTURE_TYPE_P;
+#ifdef VPG_DRIVER
+        for (i = 0 ; i < ctx->ref_nr; i++) {
+            pic->refs[i] = ctx->references[i];
+            pic->refs[i]->ref_count++;
+        }
+        pic->nb_refs = ctx->ref_nr;
+#else
         pic->refs[0] = ctx->pic_end;
         pic->nb_refs = 1;
+#endif
         ++ctx->gop_counter;
         ++ctx->p_counter;
     }
     start = end = pic;
 
+#ifdef VPG_DRIVER
+    vaapi_encode_add_reference(ctx, end);
+#endif
     if (pic->type != PICTURE_TYPE_IDR) {
         // If that was not an IDR frame, add B-frames display-before and
         // encode-after it, but not exceeding the GOP size.
@@ -693,10 +771,20 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
                 goto fail;
 
             pic->type = PICTURE_TYPE_B;
+#ifdef VPG_DRIVER
+            {
+                int j;
+                for (j = 0 ; j < ctx->ref_nr; j++) {
+                    pic->refs[j] = ctx->references[j];
+                    pic->refs[j]->ref_count++;
+                }
+                pic->nb_refs = ctx->ref_nr;
+            }
+#else
             pic->refs[0] = ctx->pic_end;
             pic->refs[1] = end;
             pic->nb_refs = 2;
-
+#endif
             pic->next = start;
             pic->display_order = ctx->input_order + ctx->b_per_p - i - 1;
             pic->encode_order  = pic->display_order + 1;
@@ -767,7 +855,27 @@ static int vaapi_encode_truncate_gop(AVCodecContext *avctx)
             // Some fixing up is required.  Change the type of this
             // picture to P, then modify preceding B references which
             // point beyond it to point at it instead.
+#ifdef VPG_DRIVER
+            int last_ref = last_pic->nb_refs - 1;
 
+            last_pic->type = PICTURE_TYPE_P;
+            last_pic->encode_order = last_pic->refs[last_ref]->encode_order;
+
+            for (pic = ctx->pic_start; pic != last_pic; pic = pic->next) {
+                if (pic->type == PICTURE_TYPE_B &&
+                    pic->refs[last_ref] == last_pic->refs[last_ref]) {
+                    if (last_pic->refs[last_ref])
+                       pic->refs[last_ref]->ref_count --;
+                    pic->refs[last_ref] = last_pic;
+                    pic->refs[last_ref]->ref_count ++;
+                }
+            }
+            last_pic->nb_refs = last_pic->refs[last_ref] ?  last_pic->nb_refs - 1 :  last_pic->nb_refs;
+
+            if (last_pic->refs[last_ref])
+                last_pic->refs[last_ref]->ref_count--;
+            last_pic->refs[last_ref] = NULL;
+#else
             last_pic->type = PICTURE_TYPE_P;
             last_pic->encode_order = last_pic->refs[1]->encode_order;
 
@@ -779,17 +887,37 @@ static int vaapi_encode_truncate_gop(AVCodecContext *avctx)
 
             last_pic->nb_refs = 1;
             last_pic->refs[1] = NULL;
+#endif
         } else {
             // We can use the current structure (no references point
             // beyond the end), but there are unused pics to discard.
         }
+#ifdef VPG_DRIVER
+        // Discard all following pics, they will never be used.
+        for (pic = last_pic->next; pic; pic = next) {
+            int i;
+            int ref_nr = ctx->ref_nr;
+            next = pic->next;
 
+            for (i = 0; i < pic->nb_refs; i++) {
+                pic->refs[i]->ref_count--;
+            }
+            for (i = 0 ; i < ref_nr; i++) {
+                if (ctx->references[i] == pic) {
+                    ctx->references[i]->ref_count--;
+                    ctx->references[i] = NULL;
+                    ctx->ref_nr --;
+                }
+            }
+            vaapi_encode_free(avctx, pic);
+        }
+#else
         // Discard all following pics, they will never be used.
         for (pic = last_pic->next; pic; pic = next) {
             next = pic->next;
             vaapi_encode_free(avctx, pic);
         }
-
+#endif
         last_pic->next = NULL;
         ctx->pic_end = last_pic;
 
@@ -809,6 +937,35 @@ static int vaapi_encode_truncate_gop(AVCodecContext *avctx)
     return 0;
 }
 
+#ifdef VPG_DRIVER
+static int vaapi_encode_clear_old(AVCodecContext *avctx)
+{
+    VAAPIEncodeContext *ctx = avctx->priv_data;
+    VAAPIEncodePicture *pic, *next;
+    pic = ctx->pic_start;
+    while (pic && pic->next) {
+        if (pic->encode_order > ctx->output_order)
+            break;
+
+        if (pic->ref_count == 0 && pic == ctx->pic_start) {
+            ctx->pic_start = pic->next;
+            vaapi_encode_free(avctx, pic);
+            pic = ctx->pic_start;
+            continue;
+        }
+        next = pic->next;
+
+        if (next->encode_order > ctx->output_order)
+            break;
+        if (next->ref_count == 0) {
+            pic->next = next->next;
+            vaapi_encode_free(avctx, next);
+        }
+        pic = pic->next;
+    }
+    return 0;
+}
+#else
 static int vaapi_encode_clear_old(AVCodecContext *avctx)
 {
     VAAPIEncodeContext *ctx = avctx->priv_data;
@@ -840,7 +997,7 @@ static int vaapi_encode_clear_old(AVCodecContext *avctx)
 
     return 0;
 }
-
+#endif
 int ff_vaapi_encode2(AVCodecContext *avctx, AVPacket *pkt,
                      const AVFrame *input_image, int *got_packet)
 {
@@ -1513,7 +1670,14 @@ av_cold int ff_vaapi_encode_close(AVCodecContext *avctx)
 {
     VAAPIEncodeContext *ctx = avctx->priv_data;
     VAAPIEncodePicture *pic, *next;
-
+#ifdef VPG_DRIVER
+    int i;
+    for (i = 0 ; i < ctx->ref_nr; i++) {
+        ctx->references[i]->ref_count --;
+        ctx->references[i] = NULL;
+    }
+    ctx->ref_nr = 0;
+#endif
     for (pic = ctx->pic_start; pic; pic = next) {
         next = pic->next;
         vaapi_encode_free(avctx, pic);

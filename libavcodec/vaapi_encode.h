@@ -34,7 +34,11 @@ struct VAAPIEncodePicture;
 enum {
     MAX_CONFIG_ATTRIBUTES  = 4,
     MAX_GLOBAL_PARAMS      = 4,
+#ifdef VPG_DRIVER
+    MAX_PICTURE_REFERENCES = 5,
+#else
     MAX_PICTURE_REFERENCES = 2,
+#endif
     MAX_PICTURE_SLICES     = 112,
     MAX_PARAM_BUFFERS      = 128,
     MAX_REORDER_DELAY      = 16,
@@ -85,6 +89,9 @@ typedef struct VAAPIEncodePicture {
     struct VAAPIEncodePicture *refs[MAX_PICTURE_REFERENCES];
 
     int          nb_slices;
+#ifdef VPG_DRIVER
+    int          ref_count;
+#endif
     VAAPIEncodeSlice *slices[MAX_PICTURE_SLICES];
 } VAAPIEncodePicture;
 
@@ -195,13 +202,21 @@ typedef struct VAAPIEncodeContext {
     int64_t         ts_ring[MAX_REORDER_DELAY * 3];
 
     // Frame type decision.
+    int i_per_idr;
     int p_per_i;
     int b_per_p;
     int force_idr;
     int gop_counter;
+    int i_counter;
     int p_counter;
     int end_of_stream;
 
+#ifdef VPG_DRIVER
+    // reference frames
+    struct VAAPIEncodePicture *references[MAX_PICTURE_REFERENCES];
+    int ref_nr;
+    int max_ref_nr;
+#endif
     // Codec-local options are allocated to follow this structure in
     // memory (in the AVCodec definition, set priv_data_size to
     // sizeof(VAAPIEncodeContext) + sizeof(VAAPIEncodeFooOptions)).

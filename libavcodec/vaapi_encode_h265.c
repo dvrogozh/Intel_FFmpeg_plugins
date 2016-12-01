@@ -903,11 +903,19 @@ static int vaapi_encode_h265_init_sequence_params(AVCodecContext *avctx)
 
         mseq->log2_max_pic_order_cnt_lsb_minus4 = 8;
         mseq->vps_sub_layer_ordering_info_present_flag = 0;
+#ifdef VPG_DRIVER
+        mseq->vps_max_dec_pic_buffering_minus1[0] = ctx->max_ref_nr;
+#else
         mseq->vps_max_dec_pic_buffering_minus1[0] = (avctx->max_b_frames > 0) + 1;
+#endif
         mseq->vps_max_num_reorder_pics[0]         = (avctx->max_b_frames > 0);
         mseq->vps_max_latency_increase_plus1[0]   = 0;
         mseq->sps_sub_layer_ordering_info_present_flag = 0;
+#ifdef VPG_DRIVER
+        mseq->sps_max_dec_pic_buffering_minus1[0] = ctx->max_ref_nr;
+#else
         mseq->sps_max_dec_pic_buffering_minus1[0] = (avctx->max_b_frames > 0) + 1;
+#endif
         mseq->sps_max_num_reorder_pics[0]         = (avctx->max_b_frames > 0);
         mseq->sps_max_latency_increase_plus1[0]   = 0;
 
@@ -1089,6 +1097,23 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
         vslice->ref_pic_list1[i].flags      = VA_PICTURE_HEVC_INVALID;
     }
 
+#ifdef VPG_DRIVER
+    vslice->slice_fields.bits.num_ref_idx_active_override_flag = 1;
+    if (pic->type == PICTURE_TYPE_P) {
+        vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs - 1;
+        for (i = 0; i < pic->nb_refs; i++) {
+            vslice->ref_pic_list0[i] = vpic->reference_frames[pic->nb_refs - 1 - i];
+            vslice->ref_pic_list1[i] = vslice->ref_pic_list0[i];
+        }
+    }
+    if (pic->type == PICTURE_TYPE_B) {
+        vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs - 2;
+        for (i = 0; i < pic->nb_refs - 1; i++)
+            vslice->ref_pic_list0[i] = vpic->reference_frames[pic->nb_refs - 2 - i];
+        vslice->num_ref_idx_l1_active_minus1 = 0;
+        vslice->ref_pic_list1[0] = vpic->reference_frames[pic->nb_refs - 1];
+    }
+#else
     av_assert0(pic->nb_refs <= 2);
     if (pic->nb_refs >= 1) {
         // Backward reference for P- or B-frame.
@@ -1097,11 +1122,6 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
 
         vslice->num_ref_idx_l0_active_minus1 = 0;
         vslice->ref_pic_list0[0] = vpic->reference_frames[0];
-#ifdef VPG_DRIVER
-        // Workaround, VPG driver only supports GPB frame instead P frame
-        if (pic->type == PICTURE_TYPE_P)
-            vslice->ref_pic_list1[0] = vpic->reference_frames[0];
-#endif
     }
     if (pic->nb_refs >= 2) {
         // Forward reference for B-frame.
@@ -1110,7 +1130,7 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
         vslice->num_ref_idx_l1_active_minus1 = 0;
         vslice->ref_pic_list1[0] = vpic->reference_frames[1];
     }
-
+#endif
     vslice->max_num_merge_cand = 5;
 
     if (pic->type == PICTURE_TYPE_B)
@@ -1135,7 +1155,36 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
 
         mslice->short_term_ref_pic_set_sps_flag = 0;
         mslice->st_ref_pic_set.inter_ref_pic_set_prediction_flag = 0;
+#ifdef VPG_DRIVER
+        if (pic->type == PICTURE_TYPE_P || pic->type == PICTURE_TYPE_B) {
+            mslice->st_ref_pic_set.num_negative_pics = vslice->num_ref_idx_l0_active_minus1 + 1;
+            for (i = 0 ; i < mslice->st_ref_pic_set.num_negative_pics; i++) {
+                mslice->st_ref_pic_set.used_by_curr_pic_s0_flag[i] = 1;
+                if (i == 0) {
+                    mslice->st_ref_pic_set.delta_poc_s0_minus1[i] =
+                        pslice->pic_order_cnt - vslice->ref_pic_list0[i].pic_order_cnt - 1;
+                } else {
+                    mslice->st_ref_pic_set.delta_poc_s0_minus1[i] =
+                         vslice->ref_pic_list0[i-1].pic_order_cnt - vslice->ref_pic_list0[i].pic_order_cnt - 1;
+                }
+            }
 
+        }
+
+        if (pic->type == PICTURE_TYPE_B) {
+            mslice->st_ref_pic_set.num_positive_pics = vslice->num_ref_idx_l1_active_minus1 + 1;
+            for (i = 0 ; i < mslice->st_ref_pic_set.num_positive_pics; i++) {
+                mslice->st_ref_pic_set.used_by_curr_pic_s1_flag[i] = 1;
+                if (i == 0) {
+                    mslice->st_ref_pic_set.delta_poc_s1_minus1[i] =
+                        vslice->ref_pic_list1[i].pic_order_cnt - pslice->pic_order_cnt - 1;
+                } else {
+                    mslice->st_ref_pic_set.delta_poc_s0_minus1[i] =
+                         vslice->ref_pic_list1[i].pic_order_cnt - vslice->ref_pic_list1[i-1].pic_order_cnt - 1;
+                }
+            }
+        }
+#else
         for (st = ctx->pic_start; st; st = st->next) {
             if (st->encode_order >= pic->encode_order) {
                 // Not yet in DPB.
@@ -1167,6 +1216,7 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
                 ++mslice->st_ref_pic_set.num_positive_pics;
             }
         }
+#endif
     }
 
     return 0;
@@ -1287,7 +1337,16 @@ static av_cold int vaapi_encode_h265_init(AVCodecContext *avctx)
 
     ctx->surface_width  = FFALIGN(avctx->width,  16);
     ctx->surface_height = FFALIGN(avctx->height, 16);
-
+#ifdef VPG_DRIVER
+    ctx->max_ref_nr = avctx->refs;
+    // hevc support max 3 forward ref
+    if (ctx->max_ref_nr > 3)
+        ctx->max_ref_nr = 3;
+    if (avctx->max_b_frames && ctx->max_ref_nr < 2)
+        ctx->max_ref_nr = 2;
+    if (ctx->max_ref_nr < 1 && avctx->gop_size)
+        ctx->max_ref_nr = 1;
+#endif
     return ff_vaapi_encode_init(avctx);
 }
 

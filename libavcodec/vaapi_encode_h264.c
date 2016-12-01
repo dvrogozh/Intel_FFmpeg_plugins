@@ -790,8 +790,11 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
 
         vseq->level_idc = avctx->level;
 
+#ifdef VPG_DRIVER
+        vseq->max_num_ref_frames = ctx->max_ref_nr;
+#else
         vseq->max_num_ref_frames = 1 + (avctx->max_b_frames > 0);
-
+#endif
         vseq->picture_width_in_mbs  = priv->mb_width;
         vseq->picture_height_in_mbs = priv->mb_height;
 
@@ -1071,6 +1074,22 @@ static int vaapi_encode_h264_init_slice_params(AVCodecContext *avctx,
         vslice->RefPicList1[i].flags      = VA_PICTURE_H264_INVALID;
     }
 
+#ifdef VPG_DRIVER
+    vslice->num_ref_idx_active_override_flag = 1;
+
+    if (pic->type == PICTURE_TYPE_P) {
+        vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs - 1;
+        for (i = 0; i < pic->nb_refs; i++)
+            vslice->RefPicList0[i] = vpic->ReferenceFrames[pic->nb_refs - 1 - i];
+    }
+    if (pic->type == PICTURE_TYPE_B) {
+        vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs - 2;
+        for (i = 0; i < pic->nb_refs - 1; i++)
+            vslice->RefPicList0[i] = vpic->ReferenceFrames[pic->nb_refs - 2 - i];
+        vslice->num_ref_idx_l1_active_minus1 = 0;
+        vslice->RefPicList1[0] = vpic->ReferenceFrames[pic->nb_refs - 1];
+    }
+#else
     av_assert0(pic->nb_refs <= 2);
     if (pic->nb_refs >= 1) {
         // Backward reference for P- or B-frame.
@@ -1087,7 +1106,7 @@ static int vaapi_encode_h264_init_slice_params(AVCodecContext *avctx,
         vslice->num_ref_idx_l1_active_minus1 = 0;
         vslice->RefPicList1[0] = vpic->ReferenceFrames[1];
     }
-
+#endif
     if (pic->type == PICTURE_TYPE_B)
         vslice->slice_qp_delta = priv->fixed_qp_b - vpic->pic_init_qp;
     else if (pic->type == PICTURE_TYPE_P)
@@ -1269,6 +1288,15 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
     ctx->surface_width  = FFALIGN(avctx->width,  16);
     ctx->surface_height = FFALIGN(avctx->height, 16);
 
+#ifdef VPG_DRIVER
+    ctx->max_ref_nr = avctx->refs;
+    if (ctx->max_ref_nr > MAX_PICTURE_REFERENCES)
+        ctx->max_ref_nr = MAX_PICTURE_REFERENCES;
+    if (avctx->max_b_frames && ctx->max_ref_nr < 2)
+        ctx->max_ref_nr = 2;
+    if (ctx->max_ref_nr < 1 && avctx->gop_size)
+        ctx->max_ref_nr = 1;
+#endif
     return ff_vaapi_encode_init(avctx);
 }
 

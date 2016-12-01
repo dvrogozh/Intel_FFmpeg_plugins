@@ -398,6 +398,9 @@ static av_cold int vaapi_encode_mjpeg_init(AVCodecContext *avctx)
     ctx->surface_width  = FFALIGN(avctx->width,  8);
     ctx->surface_height = FFALIGN(avctx->height, 8);
 
+#ifdef VPG_DRIVER
+    ctx->max_ref_nr = 2;
+#endif
     return ff_vaapi_encode_init(avctx);
 }
 
