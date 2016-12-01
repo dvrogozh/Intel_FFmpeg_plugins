@@ -1005,7 +1005,22 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
     vpic->pic_fields.bits.idr_pic_flag = (pic->type == PICTURE_TYPE_IDR);
     vpic->pic_fields.bits.reference_pic_flag = (pic->type != PICTURE_TYPE_B);
 
-    pic->nb_slices = 1;
+    if (avctx->slices == 0) {
+        av_log(avctx, AV_LOG_WARNING, "slice num is not set or set invalid as 0, set it to 1.\n");
+        avctx->slices = 1;
+    }
+
+    if (avctx->slices > priv->mb_height) {
+        av_log(avctx, AV_LOG_WARNING, "slice num is set invalid, > mb_height %d, set it to mb_height.\n",
+        priv->mb_height);
+        avctx->slices = priv->mb_height;
+    }
+
+    pic->nb_slices = avctx->slices;
+
+    pic->slice_of_mbs = (priv->mb_width * priv->mb_height) / pic->nb_slices;
+    pic->slice_mod_mbs = (priv->mb_width * priv->mb_height) % pic->nb_slices;
+    pic->last_mb_index = 0;
 
     return 0;
 }
@@ -1055,15 +1070,18 @@ static int vaapi_encode_h264_init_slice_params(AVCodecContext *avctx,
         av_assert0(0 && "invalid picture type");
     }
 
-    // Only one slice per frame.
-    vslice->macroblock_address = 0;
-    vslice->num_macroblocks = priv->mb_width * priv->mb_height;
+    vslice->macroblock_address = pic->last_mb_index;
+    vslice->num_macroblocks = pic->slice_of_mbs + (pic->slice_mod_mbs > 0 ? 1 : 0);
+    if (pic->slice_mod_mbs > 0)
+        pic->slice_mod_mbs --;
+    pic->last_mb_index += vslice->num_macroblocks;
 
     vslice->macroblock_info = VA_INVALID_ID;
 
     vslice->pic_parameter_set_id = vpic->pic_parameter_set_id;
-    vslice->idr_pic_id = priv->idr_pic_count++;
-
+    vslice->idr_pic_id = priv->idr_pic_count;
+    if (pic->last_mb_index == priv->mb_width * priv->mb_height)
+        priv->idr_pic_count ++;
     vslice->pic_order_cnt_lsb = (pic->display_order - priv->last_idr_frame) &
         ((1 << (4 + vseq->seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4)) - 1);
 

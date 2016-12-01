@@ -77,7 +77,7 @@ typedef struct VAAPIEncodePicture {
     VASurfaceID     recon_surface;
 
     int          nb_param_buffers;
-    VABufferID      param_buffers[MAX_PARAM_BUFFERS];
+    VABufferID      *param_buffers;
 
     AVBufferRef    *output_buffer_ref;
     VABufferID      output_buffer;
@@ -89,10 +89,13 @@ typedef struct VAAPIEncodePicture {
     struct VAAPIEncodePicture *refs[MAX_PICTURE_REFERENCES];
 
     int          nb_slices;
+    int          slice_of_mbs;
+    int          slice_mod_mbs;
+    int          last_mb_index;
 #ifdef VPG_DRIVER
     int          ref_count;
 #endif
-    VAAPIEncodeSlice *slices[MAX_PICTURE_SLICES];
+    VAAPIEncodeSlice **slices;
 } VAAPIEncodePicture;
 
 typedef struct VAAPIEncodeContext {

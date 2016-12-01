@@ -1037,7 +1037,26 @@ static int vaapi_encode_h265_init_picture_params(AVCodecContext *avctx,
         av_assert0(0 && "invalid picture type");
     }
 
-    pic->nb_slices = 1;
+    if (avctx->slices == 0) {
+        av_log(avctx, AV_LOG_WARNING, "slice num is not set or set invalid as 0, set it to 1.\n");
+        avctx->slices = 1;
+    }
+
+    if (avctx->slices > priv->ctu_height) {
+        av_log(avctx, AV_LOG_WARNING, "slice num is set invalid, > ctu_height %d, set it to ctu_height.\n",
+                priv->ctu_height);
+        avctx->slices = priv->ctu_height;
+    }
+
+    pic->nb_slices = avctx->slices;
+#ifdef VPG_DRIVER
+    pic->slice_of_mbs = (priv->ctu_width * priv->ctu_height) / pic->nb_slices;
+    pic->slice_mod_mbs = (priv->ctu_width * priv->ctu_height) % pic->nb_slices;
+#else
+    pic->slice_of_mbs = priv->ctu_height / pic->nb_slices;
+    pic->slice_mod_mbs = priv->ctu_height % pic->nb_slices;
+#endif
+    pic->last_mb_index = 0;
 
     return 0;
 }
@@ -1060,9 +1079,16 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
     pslice = slice->priv_data;
     mslice = &pslice->misc_slice_params;
 
-    // Currently we only support one slice per frame.
-    vslice->slice_segment_address = 0;
-    vslice->num_ctu_in_slice = priv->ctu_width * priv->ctu_height;
+    vslice->slice_segment_address = pic->last_mb_index;
+    mslice->slice_segment_address = pic->last_mb_index;
+#ifdef VPG_DRIVER
+    vslice->num_ctu_in_slice = pic->slice_of_mbs + (pic->slice_mod_mbs > 0 ? 1 : 0);
+#else
+    vslice->num_ctu_in_slice = (pic->slice_of_mbs + (pic->slice_mod_mbs > 0 ? 1 : 0)) * priv->ctu_width;
+#endif
+    if (pic->slice_mod_mbs > 0)
+        pic->slice_mod_mbs --;
+    pic->last_mb_index += vslice->num_ctu_in_slice;
 
     switch (pic->type) {
     case PICTURE_TYPE_IDR:
@@ -1140,9 +1166,13 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
     else
         vslice->slice_qp_delta = priv->fixed_qp_idr - vpic->pic_init_qp;
 
-    vslice->slice_fields.bits.last_slice_of_pic_flag = 1;
+    if (pic->last_mb_index == priv->ctu_width * priv->ctu_height)
+        vslice->slice_fields.bits.last_slice_of_pic_flag = 1;
 
-    mslice->first_slice_segment_in_pic_flag = 1;
+    if (vslice->slice_segment_address == 0)
+        mslice->first_slice_segment_in_pic_flag = 1;
+    else
+        mslice->first_slice_segment_in_pic_flag = 0;
 
     if (pic->type == PICTURE_TYPE_IDR) {
         // No reference pictures.
