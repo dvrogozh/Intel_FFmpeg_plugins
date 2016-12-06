@@ -162,12 +162,24 @@ static int vaapi_frames_get_constraints(AVHWDeviceContext *hwdev,
         attr_count = 0;
         vas = vaQuerySurfaceAttributes(hwctx->display, config->config_id,
                                        0, &attr_count);
+#ifdef VPG_DRIVER
+        if (vas == VA_STATUS_ERROR_UNIMPLEMENTED) {
+            av_log(hwdev, AV_LOG_WARNING,
+                   "Query surface attributes isn't implemented.\n");
+        } else if (vas != VA_STATUS_SUCCESS) {
+            av_log(hwdev, AV_LOG_ERROR, "Failed to query surface attributes: "
+                   "%d (%s).\n", vas, vaErrorStr(vas));
+            err = AVERROR(ENOSYS);
+            goto fail;
+        }
+#else
         if (vas != VA_STATUS_SUCCESS) {
             av_log(hwdev, AV_LOG_ERROR, "Failed to query surface attributes: "
                    "%d (%s).\n", vas, vaErrorStr(vas));
             err = AVERROR(ENOSYS);
             goto fail;
         }
+#endif
 
         attr_list = av_malloc(attr_count * sizeof(*attr_list));
         if (!attr_list) {
@@ -177,12 +189,24 @@ static int vaapi_frames_get_constraints(AVHWDeviceContext *hwdev,
 
         vas = vaQuerySurfaceAttributes(hwctx->display, config->config_id,
                                        attr_list, &attr_count);
+#ifdef VPG_DRIVER
+        if (vas == VA_STATUS_ERROR_UNIMPLEMENTED) {
+            av_log(hwdev, AV_LOG_WARNING,
+                   "Query surface attributes isn't implemented.\n");
+        } else if (vas != VA_STATUS_SUCCESS) {
+            av_log(hwdev, AV_LOG_ERROR, "Failed to query surface attributes: "
+                   "%d (%s).\n", vas, vaErrorStr(vas));
+            err = AVERROR(ENOSYS);
+            goto fail;
+        }
+#else
         if (vas != VA_STATUS_SUCCESS) {
             av_log(hwdev, AV_LOG_ERROR, "Failed to query surface attributes: "
                    "%d (%s).\n", vas, vaErrorStr(vas));
             err = AVERROR(ENOSYS);
             goto fail;
         }
+#endif
 
         pix_fmt_count = 0;
         for (i = 0; i < attr_count; i++) {
