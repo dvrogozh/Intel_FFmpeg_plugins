@@ -1137,7 +1137,9 @@ static av_cold int vaapi_encode_config_attributes(AVCodecContext *avctx)
         { VAConfigAttribRTFormat         },
         { VAConfigAttribRateControl      },
         { VAConfigAttribEncMaxRefFrames  },
+#ifndef VPG_DRIVER
         { VAConfigAttribEncPackedHeaders },
+#endif
     };
 
     n = vaMaxNumProfiles(ctx->hwctx->display);
