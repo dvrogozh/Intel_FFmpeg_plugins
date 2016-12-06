@@ -1509,6 +1509,9 @@ static av_cold int vaapi_encode_create_recon_frames(AVCodecContext *avctx)
     // flight at any one time.
     ctx->recon_frames->initial_pool_size = 3 + 2 * avctx->max_b_frames;
 
+#ifdef VPG_DRIVER
+    ctx->recon_frames->initial_pool_size += ctx->max_ref_nr - 1;
+#endif
     err = av_hwframe_ctx_init(ctx->recon_frames_ref);
     if (err < 0) {
         av_log(avctx, AV_LOG_ERROR, "Failed to initialise reconstructed "
