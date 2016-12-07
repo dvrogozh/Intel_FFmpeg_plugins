@@ -24,6 +24,7 @@ size_tolerance=${14:-0}
 cmp_unit=${15:-2}
 gen=${16:-no}
 hwaccel=${17:-none}
+output_pixfmt=${18:-none}
 
 outdir="tests/data/fate"
 outfile="${outdir}/${test}"
@@ -126,7 +127,17 @@ ffmpeg(){
 }
 
 framecrc(){
-    ffmpeg "$@" -flags +bitexact -fflags +bitexact -f framecrc -
+    if [[ $hwaccel =~ "vaapi" ]]
+    then
+        if [[ $@ =~ "pix_fmt" ]]
+        then
+            ffmpeg "$@" -flags +bitexact -fflags +bitexact -f framecrc -
+        else
+            ffmpeg "$@" -pix_fmt $output_pixfmt -flags +bitexact -fflags +bitexact -f framecrc -
+        fi
+    else
+        ffmpeg "$@" -flags +bitexact -fflags +bitexact -f framecrc -
+    fi
 }
 
 ffmetadata(){
@@ -134,7 +145,17 @@ ffmetadata(){
 }
 
 framemd5(){
-    ffmpeg "$@" -flags +bitexact -fflags +bitexact -f framemd5 -
+    if [[ $hwaccel =~ "vaapi" ]]
+    then
+        if [[ $@ =~ "pix_fmt" ]]
+        then
+            ffmpeg "$@" -flags +bitexact -fflags +bitexact -f framemd5 -
+        else
+            ffmpeg "$@" -pix_fmt $output_pixfmt -flags +bitexact -fflags +bitexact -f framemd5 -
+        fi
+    else
+        ffmpeg "$@" -flags +bitexact -fflags +bitexact -f framemd5 -
+    fi
 }
 
 crc(){
