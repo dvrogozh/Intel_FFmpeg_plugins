@@ -797,8 +797,17 @@ static int vaapi_map_frame(AVHWFramesContext *hwfc,
     // faster with a copy routine which is aware of the limitation, but we
     // assume for now that the user is not aware of that and would therefore
     // prefer not to be given direct-mapped memory if they request read access.
-    if (ctx->derive_works && dst->format == hwfc->sw_format &&
-        ((flags & AV_HWFRAME_MAP_DIRECT) || !(flags & AV_HWFRAME_MAP_READ))) {
+    if (ctx->derive_works &&
+#ifdef VPG_DRIVER
+        (dst->format == hwfc->sw_format &&
+        ((flags & AV_HWFRAME_MAP_DIRECT) ||
+        !(flags & AV_HWFRAME_MAP_READ)) ||
+        (dst->format == AV_PIX_FMT_NV12))) {
+#else
+        (dst->format == hwfc->sw_format &&
+        ((flags & AV_HWFRAME_MAP_DIRECT) ||
+        !(flags & AV_HWFRAME_MAP_READ))) {
+#endif
         vas = vaDeriveImage(hwctx->display, surface_id, &map->image);
         if (vas != VA_STATUS_SUCCESS) {
             av_log(hwfc, AV_LOG_ERROR, "Failed to derive image from "
