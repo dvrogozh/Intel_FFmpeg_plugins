@@ -52,6 +52,12 @@ enum {
     PICTURE_TYPE_B   = 3,
 };
 
+enum {
+    VAAPI_RC_CBR = 0,
+    VAAPI_RC_VBR = 1,
+    VAAPI_RC_STRATEGY = 2,
+};
+
 typedef struct VAAPIEncodeSlice {
     int             index;
     void           *priv_data;

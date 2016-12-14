@@ -196,6 +196,7 @@ typedef struct VAAPIEncodeH265Context {
 
 typedef struct VAAPIEncodeH265Options {
     int qp;
+    int rc_strategy;
 } VAAPIEncodeH265Options;
 
 
@@ -1283,7 +1284,7 @@ static av_cold int vaapi_encode_h265_configure(AVCodecContext *avctx)
                priv->fixed_qp_idr, priv->fixed_qp_p, priv->fixed_qp_b);
 
 #ifdef VPG_DRIVER
-    } else if (ctx->va_rc_mode == (VA_RC_CBR | VA_RC_MB)) {
+    } else if (ctx->va_rc_mode == (VA_RC_CBR | VA_RC_MB) || ctx->va_rc_mode == (VA_RC_VBR | VA_RC_MB)) {
 #else
     } else if (ctx->va_rc_mode == VA_RC_CBR) {
 #endif
@@ -1326,6 +1327,8 @@ static const VAAPIEncodeType vaapi_encode_type_h265 = {
 static av_cold int vaapi_encode_h265_init(AVCodecContext *avctx)
 {
     VAAPIEncodeContext *ctx = avctx->priv_data;
+    VAAPIEncodeH265Options *opt =
+              (VAAPIEncodeH265Options*)ctx->codec_options_data;
 
     ctx->codec = &vaapi_encode_type_h265;
 
@@ -1352,15 +1355,17 @@ static av_cold int vaapi_encode_h265_init(AVCodecContext *avctx)
     }
     ctx->va_entrypoint = VAEntrypointEncSlice;
 
-    if (avctx->bit_rate > 0)
+    if (avctx->bit_rate > 0) {
 #ifdef VPG_DRIVER
         ctx->va_rc_mode = VA_RC_CBR | VA_RC_MB;
 #else
         ctx->va_rc_mode = VA_RC_CBR;
 #endif
-    else
+        if (opt->rc_strategy == VAAPI_RC_VBR)
+            ctx->va_rc_mode = VA_RC_VBR | VA_RC_MB;
+    } else {
         ctx->va_rc_mode = VA_RC_CQP;
-
+    }
     ctx->va_packed_headers =
         VA_ENC_PACKED_HEADER_SEQUENCE | // VPS, SPS and PPS.
         VA_ENC_PACKED_HEADER_SLICE;     // Slice headers.
@@ -1386,6 +1391,12 @@ static av_cold int vaapi_encode_h265_init(AVCodecContext *avctx)
 static const AVOption vaapi_encode_h265_options[] = {
     { "qp", "Constant QP (for P-frames; scaled by qfactor/qoffset for I/B)",
       OFFSET(qp), AV_OPT_TYPE_INT, { .i64 = 25 }, 0, 52, FLAGS },
+    { "rc_strategy", "ratecontrol method",
+        OFFSET(rc_strategy), AV_OPT_TYPE_INT, { .i64 = VAAPI_RC_CBR }, 0, VAAPI_RC_STRATEGY-1, FLAGS, "rc_strategy"},
+    { "cbr", "cbr ratecontrol method",
+        0, AV_OPT_TYPE_CONST, { .i64 = VAAPI_RC_CBR }, 0, 0, FLAGS, "rc_strategy"},
+    { "vbr", "vbr ratecontrol method",
+        0, AV_OPT_TYPE_CONST, { .i64 = VAAPI_RC_VBR }, 0, 0, FLAGS, "rc_strategy"},
     { NULL },
 };
 

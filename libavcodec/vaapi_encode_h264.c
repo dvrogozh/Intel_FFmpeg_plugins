@@ -166,6 +166,7 @@ typedef struct VAAPIEncodeH264Context {
 
 typedef struct VAAPIEncodeH264Options {
     int qp;
+    int rc_strategy;
     int quality;
     int low_power;
 } VAAPIEncodeH264Options;
@@ -1291,13 +1292,12 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
     ctx->va_rt_format = VA_RT_FORMAT_YUV420;
 
     if (avctx->bit_rate > 0) {
-        if (avctx->rc_max_rate == avctx->bit_rate)
-            ctx->va_rc_mode = VA_RC_CBR;
-        else
+        ctx->va_rc_mode = VA_RC_CBR;
+        if (opt->rc_strategy == VAAPI_RC_VBR)
             ctx->va_rc_mode = VA_RC_VBR;
-    } else
+    } else {
         ctx->va_rc_mode = VA_RC_CQP;
-
+    }
     ctx->va_packed_headers =
         VA_ENC_PACKED_HEADER_SEQUENCE | // SPS and PPS.
         VA_ENC_PACKED_HEADER_SLICE    | // Slice headers.
@@ -1324,6 +1324,12 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
 static const AVOption vaapi_encode_h264_options[] = {
     { "qp", "Constant QP (for P-frames; scaled by qfactor/qoffset for I/B)",
       OFFSET(qp), AV_OPT_TYPE_INT, { .i64 = 20 }, 0, 52, FLAGS },
+    { "rc_strategy", "ratecontrol method",
+      OFFSET(rc_strategy), AV_OPT_TYPE_INT, { .i64 = VAAPI_RC_CBR }, 0, VAAPI_RC_STRATEGY-1, FLAGS, "rc_strategy"},
+    { "cbr", "cbr ratecontrol method",
+      0, AV_OPT_TYPE_CONST, { .i64 = VAAPI_RC_CBR }, 0, 0, FLAGS, "rc_strategy"},
+    { "vbr", "vbr ratecontrol method",
+      0, AV_OPT_TYPE_CONST, { .i64 = VAAPI_RC_VBR }, 0, 0, FLAGS, "rc_strategy"},
 #ifdef VPG_DRIVER
     { "quality", "Set encode quality (trades off against speed, higher is faster)",
       OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 4 }, 1, 7, FLAGS },

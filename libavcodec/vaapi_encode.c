@@ -218,7 +218,7 @@ static int vaapi_encode_issue(AVCodecContext *avctx,
     }
 
     pic->nb_param_buffers = 0;
-
+#ifndef VPG_DRIVER
     if (pic->encode_order == 0) {
         // Global parameter buffers are set on the first picture only.
 
@@ -229,19 +229,6 @@ static int vaapi_encode_issue(AVCodecContext *avctx,
                                                  ctx->global_params_size[i]);
             if (err < 0)
                 goto fail;
-        }
-    }
-#ifdef VPG_DRIVER
-    else {
-        for (i = 0; i < ctx->nb_global_params; i++) {
-            if (ctx->global_params[i]->type == VAEncMiscParameterTypeQualityLevel) {
-                err = vaapi_encode_make_param_buffer(avctx, pic,
-                                                     VAEncMiscParameterBufferType,
-                                                     (char*)ctx->global_params[i],
-                                                      ctx->global_params_size[i]);
-                if (err < 0)
-                    goto fail;
-            }
         }
     }
 #endif
@@ -269,6 +256,18 @@ static int vaapi_encode_issue(AVCodecContext *avctx,
             goto fail;
     }
 
+#ifdef VPG_DRIVER
+
+    // VPG driver need set bitrate hrd, quality misc param every frame.
+    for (i = 0; i < ctx->nb_global_params; i++) {
+        err = vaapi_encode_make_param_buffer(avctx, pic,
+                                            VAEncMiscParameterBufferType,
+                                            (char*)ctx->global_params[i],
+                                            ctx->global_params_size[i]);
+        if (err < 0)
+            goto fail;
+    }
+#endif
     if (pic->type == PICTURE_TYPE_IDR) {
         if (ctx->va_packed_headers & VA_ENC_PACKED_HEADER_SEQUENCE &&
             ctx->codec->write_sequence_header) {
@@ -1344,8 +1343,11 @@ static av_cold int vaapi_encode_init_rate_control(AVCodecContext *avctx)
         .bits_per_second   = rc_bits_per_second,
         .target_percentage = rc_target_percentage,
         .window_size       = rc_window_size,
-        .initial_qp        = 0,
-        .min_qp            = (avctx->qmin > 0 ? avctx->qmin : 0),
+        .initial_qp        = (avctx->qmax >= 0 ? avctx->qmax : 40),
+        .min_qp            = (avctx->qmin >= 0 ? avctx->qmin : 18),
+#ifdef VPG_DRIVER
+        .max_qp            = (avctx->qmax >= 0 ? avctx->qmax : 51),
+#endif
         .basic_unit_size   = 0,
     };
     ctx->global_params[ctx->nb_global_params] =
