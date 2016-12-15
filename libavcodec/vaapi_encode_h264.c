@@ -39,6 +39,16 @@ enum {
     SLICE_TYPE_SI = 4,
 };
 
+#ifdef VPG_DRIVER
+enum {
+    TRELLIS_UNKNOWN = 0x0,
+    TRELLIS_OFF     = 0x1,
+    TRELLIS_I       = 0x2,
+    TRELLIS_P       = 0x4,
+    TRELLIS_B       = 0x8,
+};
+#endif
+
 // This structure contains all possibly-useful per-sequence syntax elements
 // which are not already contained in the various VAAPI structures.
 typedef struct VAAPIEncodeH264MiscSequenceParams {
@@ -162,11 +172,18 @@ typedef struct VAAPIEncodeH264Context {
         VAEncMiscParameterBufferQualityLevel quality;
     } quality_params;
 #endif
+#ifdef VPG_DRIVER
+    struct {
+        VAEncMiscParameterBuffer misc;
+        VAEncMiscParameterQuantization trellis;
+    } trellis_params;
+#endif
 } VAAPIEncodeH264Context;
 
 typedef struct VAAPIEncodeH264Options {
     int qp;
     int rc_strategy;
+    int trellis;
     int quality;
     int low_power;
 } VAAPIEncodeH264Options;
@@ -1194,7 +1211,17 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
                "supported with this VAAPI version.\n");
 #endif
     }
-
+#ifdef VPG_DRIVER
+    if (opt->trellis > 0) {
+        priv->trellis_params.misc.type =
+            VAEncMiscParameterTypeQuantization;
+        priv->trellis_params.trellis.quantization_flags.value = opt->trellis;
+        ctx->global_params[ctx->nb_global_params] =
+            &priv->trellis_params.misc;
+        ctx->global_params_size[ctx->nb_global_params++] =
+            sizeof(priv->trellis_params);
+    }
+#endif
     return 0;
 }
 
@@ -1333,6 +1360,13 @@ static const AVOption vaapi_encode_h264_options[] = {
 #ifdef VPG_DRIVER
     { "quality", "Set encode quality (trades off against speed, higher is faster)",
       OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 4 }, 1, 7, FLAGS },
+    { "trellis", "Trellis quantization",
+      OFFSET(trellis),  AV_OPT_TYPE_FLAGS, { .i64 = TRELLIS_UNKNOWN }, 0, 15, FLAGS, "trellis"},
+    { "off", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = TRELLIS_OFF }, 0, 0, FLAGS, "trellis"},
+    { "I", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = TRELLIS_I }, 0, 0, FLAGS, "trellis" },
+    { "P", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = TRELLIS_P }, 0, 0, FLAGS, "trellis" },
+    { "B", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = TRELLIS_B }, 0, 0, FLAGS, "trellis" },
+    { "all", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = TRELLIS_I | TRELLIS_P | TRELLIS_B }, 0, 0, FLAGS, "trellis" },
 #else
     { "quality", "Set encode quality (trades off against speed, higher is faster)",
       OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 8, FLAGS },
