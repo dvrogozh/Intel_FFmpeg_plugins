@@ -951,7 +951,7 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
         vpic->pic_fields.bits.entropy_coding_mode_flag =
             ((avctx->profile & 0xff) != 66);
         vpic->pic_fields.bits.weighted_pred_flag = 0;
-        vpic->pic_fields.bits.weighted_bipred_idc = 0;
+        vpic->pic_fields.bits.weighted_bipred_idc = 2;
         vpic->pic_fields.bits.transform_8x8_mode_flag =
             ((avctx->profile & 0xff) >= 100);
 
