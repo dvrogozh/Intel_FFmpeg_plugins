@@ -186,6 +186,7 @@ typedef struct VAAPIEncodeH264Options {
     int trellis;
     int quality;
     int low_power;
+    int disableVUI;
 } VAAPIEncodeH264Options;
 
 
@@ -801,6 +802,9 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
     VAEncPictureParameterBufferH264   *vpic = ctx->codec_picture_params;
     VAAPIEncodeH264Context            *priv = ctx->priv_data;
     VAAPIEncodeH264MiscSequenceParams *mseq = &priv->misc_sequence_params;
+    VAAPIEncodeH264Options *opt =
+        (VAAPIEncodeH264Options*)ctx->codec_options_data;
+
     int i;
 
     {
@@ -838,7 +842,7 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
             vseq->frame_cropping_flag = 0;
         }
 
-        vseq->vui_parameters_present_flag = 1;
+        vseq->vui_parameters_present_flag = !opt->disableVUI;
         if (avctx->sample_aspect_ratio.num != 0) {
             vseq->vui_fields.bits.aspect_ratio_info_present_flag = 1;
             // There is a large enum of these which we could support
@@ -1371,6 +1375,8 @@ static const AVOption vaapi_encode_h264_options[] = {
     { "quality", "Set encode quality (trades off against speed, higher is faster)",
       OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 8, FLAGS },
 #endif
+    { "disableVUI", "disable VUI insertion to bitstream",
+      OFFSET(disableVUI), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
     { "low_power", "Use low-power encoding mode (experimental: only supported "
       "on some platforms, does not support all features)",
       OFFSET(low_power), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },

@@ -197,6 +197,7 @@ typedef struct VAAPIEncodeH265Context {
 typedef struct VAAPIEncodeH265Options {
     int qp;
     int rc_strategy;
+    int disableVUI;
 } VAAPIEncodeH265Options;
 
 
@@ -786,6 +787,8 @@ static int vaapi_encode_h265_init_sequence_params(AVCodecContext *avctx)
     VAEncPictureParameterBufferHEVC   *vpic = ctx->codec_picture_params;
     VAAPIEncodeH265Context            *priv = ctx->priv_data;
     VAAPIEncodeH265MiscSequenceParams *mseq = &priv->misc_sequence_params;
+    VAAPIEncodeH265Options *opt =
+        (VAAPIEncodeH265Options*)ctx->codec_options_data;
     int i;
 
     {
@@ -942,7 +945,8 @@ static int vaapi_encode_h265_init_sequence_params(AVCodecContext *avctx)
         mseq->num_short_term_ref_pic_sets = 0;
         // STRPSs should ideally be here rather than repeated in each slice.
 
-        mseq->vui_parameters_present_flag = 1;
+
+        mseq->vui_parameters_present_flag = !opt->disableVUI;
         if (avctx->sample_aspect_ratio.num != 0) {
             mseq->aspect_ratio_info_present_flag = 1;
             if (avctx->sample_aspect_ratio.num ==
@@ -1397,6 +1401,8 @@ static const AVOption vaapi_encode_h265_options[] = {
         0, AV_OPT_TYPE_CONST, { .i64 = VAAPI_RC_CBR }, 0, 0, FLAGS, "rc_strategy"},
     { "vbr", "vbr ratecontrol method",
         0, AV_OPT_TYPE_CONST, { .i64 = VAAPI_RC_VBR }, 0, 0, FLAGS, "rc_strategy"},
+    { "disableVUI", "disable VUI insertion to bitstream",
+      OFFSET(disableVUI), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
     { NULL },
 };
 
