@@ -188,6 +188,7 @@ typedef struct VAAPIEncodeH264Options {
     int low_power;
     int disableVUI;
     int cabac;
+    int mbbrc;
 } VAAPIEncodeH264Options;
 
 
@@ -1230,6 +1231,8 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
         ctx->global_params_size[ctx->nb_global_params++] =
             sizeof(priv->trellis_params);
     }
+
+    ctx->rc_params.rc.rc_flags.bits.mb_rate_control = opt->mbbrc;
 #endif
     return 0;
 }
@@ -1384,6 +1387,10 @@ static const AVOption vaapi_encode_h264_options[] = {
       OFFSET(disableVUI), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
     { "cabac", "use cabac in profile > baseline, for it will improve compression ratio",
       OFFSET(cabac), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, FLAGS },
+    { "mbbrc", "Control VA_RC_MB",
+      OFFSET(mbbrc), AV_OPT_TYPE_FLAGS, { .i64 = 0 }, 0, 2, FLAGS, "mbbrc" },
+    { "off", NULL, 0,  AV_OPT_TYPE_CONST, { .i64 = 2 }, 0, 0, FLAGS, "mbbrc"},
+    { "on", NULL, 0,  AV_OPT_TYPE_CONST, { .i64 = 1 }, 0, 0, FLAGS, "mbbrc"},
     { "low_power", "Use low-power encoding mode (experimental: only supported "
       "on some platforms, does not support all features)",
       OFFSET(low_power), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
