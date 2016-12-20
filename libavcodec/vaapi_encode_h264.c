@@ -187,6 +187,7 @@ typedef struct VAAPIEncodeH264Options {
     int quality;
     int low_power;
     int disableVUI;
+    int cabac;
 } VAAPIEncodeH264Options;
 
 
@@ -952,8 +953,12 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
         vpic->num_ref_idx_l0_active_minus1 = 0;
         vpic->num_ref_idx_l1_active_minus1 = 0;
 
-        vpic->pic_fields.bits.entropy_coding_mode_flag =
-            ((avctx->profile & 0xff) != 66);
+        if (opt->cabac) {
+            vpic->pic_fields.bits.entropy_coding_mode_flag =
+                ((avctx->profile & 0xff) != 66);
+        } else {
+            vpic->pic_fields.bits.entropy_coding_mode_flag = 0;
+        }
         vpic->pic_fields.bits.weighted_pred_flag = 0;
         vpic->pic_fields.bits.weighted_bipred_idc = 2;
         vpic->pic_fields.bits.transform_8x8_mode_flag =
@@ -1377,6 +1382,8 @@ static const AVOption vaapi_encode_h264_options[] = {
 #endif
     { "disableVUI", "disable VUI insertion to bitstream",
       OFFSET(disableVUI), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
+    { "cabac", "use cabac in profile > baseline, for it will improve compression ratio",
+      OFFSET(cabac), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, FLAGS },
     { "low_power", "Use low-power encoding mode (experimental: only supported "
       "on some platforms, does not support all features)",
       OFFSET(low_power), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
