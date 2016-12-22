@@ -58,6 +58,13 @@ typedef struct ScaleVAAPIContext {
 
     int output_width;  // computed width
     int output_height; // computed height
+    VAProcFilterCap denoise_caps;
+    int denoise;         // enable denoise algo. level is the optional
+                         // value from the interval [-1, 100], -1 means disabled
+
+    VAProcFilterCap sharpness_caps;
+    int sharpness;       // enable sharpness. level is the optional value
+                         // from the interval [-1, 100], -1 means disabled
 } ScaleVAAPIContext;
 
 
@@ -126,6 +133,8 @@ static int scale_vaapi_config_output(AVFilterLink *outlink)
     AVVAAPIFramesContext *va_frames;
     VAStatus vas;
     int err, i;
+    unsigned int num_denoise_caps = 1;
+    unsigned int num_sharpness_caps = 1;
 
     scale_vaapi_pipeline_uninit(ctx);
 
@@ -240,6 +249,40 @@ static int scale_vaapi_config_output(AVFilterLink *outlink)
         goto fail;
     }
 
+    // multiple filters aren't supported in the driver:
+    // sharpness can't work with noise reduction(de-noise), deinterlacing
+    // color balance, skin tone enhancement...
+    if (ctx->denoise != -1 && ctx->sharpness != -1) {
+        av_log(ctx, AV_LOG_ERROR, "Do not support multiply filters (sharpness "
+               "can't work with the other filters).\n");
+        err = AVERROR(EINVAL);
+        goto fail;
+    }
+
+    if (ctx->denoise != -1) {
+        vas = vaQueryVideoProcFilterCaps(ctx->hwctx->display, ctx->va_context,
+                                         VAProcFilterNoiseReduction,
+                                         &ctx->denoise_caps, &num_denoise_caps);
+        if (vas != VA_STATUS_SUCCESS) {
+            av_log(ctx, AV_LOG_ERROR, "Failed to query denoise caps "
+                   "context: %d (%s).\n", vas, vaErrorStr(vas));
+            err = AVERROR(EIO);
+            goto fail;
+        }
+    }
+
+    if (ctx->sharpness != -1) {
+        vas = vaQueryVideoProcFilterCaps(ctx->hwctx->display, ctx->va_context,
+                                         VAProcFilterSharpening,
+                                         &ctx->sharpness_caps, &num_sharpness_caps);
+        if (vas != VA_STATUS_SUCCESS) {
+            av_log(ctx, AV_LOG_ERROR, "Failed to query sharpness caps "
+                   "context: %d (%s).\n", vas, vaErrorStr(vas));
+            err = AVERROR(EIO);
+            goto fail;
+        }
+    }
+
     av_freep(&hwconfig);
     av_hwframe_constraints_free(&constraints);
     return 0;
@@ -265,6 +308,14 @@ static int vaapi_proc_colour_standard(enum AVColorSpace av_cs)
     }
 }
 
+static float map_to_range(
+    int input, int in_min, int in_max,
+    float out_min, float out_max)
+{
+    return (input - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+
 static int scale_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
 {
     AVFilterContext *avctx = inlink->dst;
@@ -275,6 +326,10 @@ static int scale_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
     VAProcPipelineParameterBuffer params;
     VABufferID params_id;
     VARectangle input_region;
+    VABufferID denoise_id;
+    VABufferID sharpness_id;
+    VABufferID filter_bufs[VAProcFilterCount];
+    int num_filter_bufs = 0;
     VAStatus vas;
     int err;
 
@@ -300,6 +355,43 @@ static int scale_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
     av_log(ctx, AV_LOG_DEBUG, "Using surface %#x for scale output.\n",
            output_surface);
 
+    if (ctx->denoise != -1) {
+        VAProcFilterParameterBuffer denoise;
+        denoise.type  = VAProcFilterNoiseReduction;
+        denoise.value =  map_to_range(ctx->denoise, 0, 100,
+                                      ctx->denoise_caps.range.min_value,
+                                      ctx->denoise_caps.range.max_value);
+        vas = vaCreateBuffer(ctx->hwctx->display, ctx->va_context,
+                       VAProcFilterParameterBufferType, sizeof(denoise), 1,
+                       &denoise, &denoise_id);
+        if (vas != VA_STATUS_SUCCESS) {
+            av_log(ctx, AV_LOG_ERROR,  "Failed to create denoise parameter buffer: "
+                   "%d (%s).\n", vas, vaErrorStr(vas));
+            err = AVERROR(EIO);
+            goto fail;
+        }
+        filter_bufs[num_filter_bufs++] = denoise_id;
+    }
+
+    if (ctx->sharpness != -1) {
+        VAProcFilterParameterBuffer sharpness;
+        sharpness.type  = VAProcFilterSharpening;
+        sharpness.value = map_to_range(ctx->sharpness,
+                                       0, 100,
+                                       ctx->sharpness_caps.range.min_value,
+                                       ctx->sharpness_caps.range.max_value);
+        vas = vaCreateBuffer(ctx->hwctx->display, ctx->va_context,
+                       VAProcFilterParameterBufferType, sizeof(sharpness), 1,
+                       &sharpness, &sharpness_id);
+        if (vas != VA_STATUS_SUCCESS) {
+            av_log(ctx, AV_LOG_ERROR,  "Failed to create sharpness parameter buffer: "
+                   "%d (%s).\n", vas, vaErrorStr(vas));
+            err = AVERROR(EIO);
+            goto fail;
+        }
+        filter_bufs[num_filter_bufs++] = sharpness_id;
+    }
+
     memset(&params, 0, sizeof(params));
 
     // If there were top/left cropping, it could be taken into
@@ -322,6 +414,11 @@ static int scale_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
 
     params.pipeline_flags = 0;
     params.filter_flags = VA_FILTER_SCALING_HQ;
+
+    if (num_filter_bufs) {
+         params.filters = filter_bufs;
+         params.num_filters = num_filter_bufs;
+    }
 
     vas = vaBeginPicture(ctx->hwctx->display,
                          ctx->va_context, output_surface);
@@ -371,6 +468,9 @@ static int scale_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
         }
     }
 
+    for (int i = 0; i < num_filter_bufs; i++)
+        vaDestroyBuffer(ctx->hwctx->display, filter_bufs[i]);
+
     av_frame_copy_props(output_frame, input_frame);
     av_frame_free(&input_frame);
 
@@ -389,6 +489,8 @@ fail_after_begin:
 fail_after_render:
     vaEndPicture(ctx->hwctx->display, ctx->va_context);
 fail:
+    for (int i = 0; i < num_filter_bufs; i++)
+        vaDestroyBuffer(ctx->hwctx->display, filter_bufs[i]);
     av_frame_free(&input_frame);
     av_frame_free(&output_frame);
     return err;
@@ -438,6 +540,10 @@ static const AVOption scale_vaapi_options[] = {
       OFFSET(h_expr), AV_OPT_TYPE_STRING, {.str = "ih"}, .flags = FLAGS },
     { "format", "Output video format (software format of hardware frames)",
       OFFSET(output_format_string), AV_OPT_TYPE_STRING, .flags = FLAGS },
+    { "denoise", "denoise level [-1, 100], -1 means disabled",
+      OFFSET(denoise), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, 100, .flags = FLAGS },
+    { "sharpness", "sharpness level [-1, 100], -1 means disabled",
+      OFFSET(sharpness), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, 100, .flags = FLAGS },
     { NULL },
 };
 
