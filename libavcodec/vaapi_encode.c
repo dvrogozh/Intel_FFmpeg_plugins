@@ -28,7 +28,7 @@
 #include "avcodec.h"
 
 static const char *picture_type_name[] = { "IDR", "I", "P", "B" };
-
+static int vaapi_encode_mangle_end(AVCodecContext *avctx);
 static int vaapi_encode_make_packed_header(AVCodecContext *avctx,
                                            VAAPIEncodePicture *pic,
                                            int type, char *data, size_t bit_len)
@@ -707,19 +707,22 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
     VAAPIEncodePicture *start, *end, *pic;
     int i;
 
-    for (pic = ctx->pic_start; pic; pic = pic->next) {
-        if (pic->next)
+    if (ctx->force_idr_frame) {
+        vaapi_encode_mangle_end(avctx);
+    } else {
+        for (pic = ctx->pic_start; pic; pic = pic->next) {
+            if (pic->next)
 #ifdef VPG_DRIVER
-            av_assert0(pic->display_order < pic->next->display_order);
+                av_assert0(pic->display_order < pic->next->display_order);
 #else
-            av_assert0(pic->display_order + 1 == pic->next->display_order);
+                av_assert0(pic->display_order + 1 == pic->next->display_order);
 #endif
-        if (pic->display_order == ctx->input_order) {
-            *pic_out = pic;
-            return 0;
+            if (pic->display_order == ctx->input_order) {
+                *pic_out = pic;
+                return 0;
+            }
         }
     }
-
     if (ctx->input_order == 0) {
         // First frame is always an IDR frame.
         av_assert0(!ctx->pic_start && !ctx->pic_end);
@@ -748,14 +751,15 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
 #ifdef VPG_DRIVER
     pic->ref_count = 0;
 #endif
-    if (ctx->p_per_i == 0 || ctx->p_counter == ctx->p_per_i) {
-        if (ctx->i_per_idr == 0 || ctx->i_counter == ctx->i_per_idr) {
+    if (ctx->p_per_i == 0 || ctx->p_counter == ctx->p_per_i || ctx->force_idr_frame == 1) {
+        if (ctx->force_idr_frame == 1 || ctx->i_per_idr == 0 || ctx->i_counter == ctx->i_per_idr) {
             pic->type = PICTURE_TYPE_IDR;
             ctx->i_counter = 0;
         } else {
             pic->type = PICTURE_TYPE_I;
             ++ctx->i_counter;
         }
+        ctx->force_idr_frame = 0;
         ctx->p_counter = 0;
     } else {
         pic->type = PICTURE_TYPE_P;
@@ -1032,7 +1036,6 @@ int ff_vaapi_encode2(AVCodecContext *avctx, AVPacket *pkt,
                 goto fail;
             ctx->force_idr = 1;
         }
-
         err = vaapi_encode_get_next(avctx, &pic);
         if (err) {
             av_log(avctx, AV_LOG_ERROR, "Input setup failed: %d.\n", err);
