@@ -260,6 +260,21 @@ static int vaapi_encode_issue(AVCodecContext *avctx,
 
     // VPG driver need set bitrate hrd, quality misc param every frame.
     for (i = 0; i < ctx->nb_global_params; i++) {
+        if (ctx->global_params[i]->type == VAEncMiscParameterTypeRateControl) {
+            if (pic->type == PICTURE_TYPE_IDR || pic->type == PICTURE_TYPE_I) {
+                ctx->rc_params.rc.min_qp = (int)(avctx->qmin * avctx->i_quant_factor + avctx->i_quant_offset + 0.5);
+                ctx->rc_params.rc.initial_qp = (int)(avctx->qmax * avctx->i_quant_factor + avctx->i_quant_offset + 0.5);
+                ctx->rc_params.rc.max_qp = (int)(avctx->qmax * avctx->i_quant_factor + avctx->i_quant_offset + 0.5);
+            }
+            if (pic->type == PICTURE_TYPE_B) {
+                ctx->rc_params.rc.min_qp = (int)(avctx->qmin * avctx->b_quant_factor + avctx->b_quant_offset + 0.5);
+                ctx->rc_params.rc.initial_qp = (int)(avctx->qmax * avctx->b_quant_factor + avctx->b_quant_offset + 0.5);
+                ctx->rc_params.rc.max_qp = (int)(avctx->qmax * avctx->b_quant_factor + avctx->b_quant_offset + 0.5);
+            }
+            ctx->rc_params.rc.min_qp = ctx->rc_params.rc.min_qp >= 0 ?  ctx->rc_params.rc.min_qp : 18 ;
+            ctx->rc_params.rc.initial_qp = ctx->rc_params.rc.initial_qp >= 0 ? ctx->rc_params.rc.initial_qp : 40;
+            ctx->rc_params.rc.max_qp = ctx->rc_params.rc.max_qp >= 0 ? ctx->rc_params.rc.max_qp : 40;
+        }
         err = vaapi_encode_make_param_buffer(avctx, pic,
                                             VAEncMiscParameterBufferType,
                                             (char*)ctx->global_params[i],
