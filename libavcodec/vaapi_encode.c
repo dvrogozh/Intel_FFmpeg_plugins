@@ -1246,6 +1246,9 @@ static av_cold int vaapi_encode_config_attributes(AVCodecContext *avctx)
                        "using CBR instead.\n");
                 ctx->va_rc_mode = VA_RC_CBR;
             }
+#ifdef VPG_DRIVER
+            if (ctx->va_profile != VAProfileJPEGBaseline)
+#endif
             ctx->config_attributes[ctx->nb_config_attributes++] =
                 (VAConfigAttrib) {
                 .type  = VAConfigAttribRateControl,
