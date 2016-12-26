@@ -758,6 +758,11 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
         } else {
             pic->type = PICTURE_TYPE_I;
             ++ctx->i_counter;
+            for (i = 0 ; i < ctx->ref_nr; i++) {
+                pic->refs[i] = ctx->references[i];
+                pic->refs[i]->ref_count++;
+            }
+            pic->nb_refs = ctx->ref_nr;
         }
         ctx->force_idr_frame = 0;
         ctx->p_counter = 0;
@@ -1632,8 +1637,10 @@ av_cold int ff_vaapi_encode_init(AVCodecContext *avctx)
     ctx->output_delay = avctx->max_b_frames;
     ctx->decode_delay = 1;
     ctx->output_order = - ctx->output_delay - 1;
-
+#ifndef VPG_DRIVER
     // Currently we never generate I frames, only IDR.
+    ctx->i_per_idr = 0;
+#endif
     ctx->p_per_i = ((avctx->gop_size + avctx->max_b_frames) /
                     (avctx->max_b_frames + 1));
     ctx->b_per_p = avctx->max_b_frames;

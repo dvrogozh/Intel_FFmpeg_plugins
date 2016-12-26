@@ -189,6 +189,7 @@ typedef struct VAAPIEncodeH264Options {
     int disableVUI;
     int cabac;
     int mbbrc;
+    int idr_interval;
 } VAAPIEncodeH264Options;
 
 
@@ -933,7 +934,7 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
         }
 
         vseq->intra_period     = ctx->p_per_i * (ctx->b_per_p + 1);
-        vseq->intra_idr_period = vseq->intra_period;
+        vseq->intra_idr_period = (ctx->i_per_idr + 1) * vseq->intra_period;
         vseq->ip_period        = ctx->b_per_p + 1;
     }
 
@@ -1234,6 +1235,7 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
 
     ctx->rc_params.rc.rc_flags.bits.mb_rate_control = opt->mbbrc;
 #endif
+    ctx->i_per_idr = opt->idr_interval;
     return 0;
 }
 
@@ -1394,6 +1396,8 @@ static const AVOption vaapi_encode_h264_options[] = {
     { "low_power", "Use low-power encoding mode (experimental: only supported "
       "on some platforms, does not support all features)",
       OFFSET(low_power), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
+    { "idr_interval", "idr interval, default 0 means every I is an IDR, 1 means every other I frame is an IDR etc",
+      OFFSET(idr_interval), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, FLAGS },
     { NULL },
 };
 

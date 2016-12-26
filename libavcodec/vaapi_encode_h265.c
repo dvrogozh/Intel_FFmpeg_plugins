@@ -182,7 +182,8 @@ typedef struct VAAPIEncodeH265Context {
     int fixed_qp_b;
 
     int64_t last_idr_frame;
-
+    int64_t last_intra_display_order;
+    int64_t valid_nb_refs;
     // Rate control configuration.
     struct {
         VAEncMiscParameterBuffer misc;
@@ -198,6 +199,7 @@ typedef struct VAAPIEncodeH265Options {
     int qp;
     int rc_strategy;
     int disableVUI;
+    int idr_interval;
 } VAAPIEncodeH265Options;
 
 
@@ -841,7 +843,7 @@ static int vaapi_encode_h265_init_sequence_params(AVCodecContext *avctx)
         }
 
         vseq->intra_period     = ctx->p_per_i * (ctx->b_per_p + 1);
-        vseq->intra_idr_period = vseq->intra_period;
+        vseq->intra_idr_period = (ctx->i_per_idr + 1) * vseq->intra_period;
         vseq->ip_period        = ctx->b_per_p + 1;
     }
 
@@ -979,7 +981,7 @@ static int vaapi_encode_h265_init_picture_params(AVCodecContext *avctx,
     VAAPIEncodeContext               *ctx = avctx->priv_data;
     VAEncPictureParameterBufferHEVC *vpic = pic->codec_picture_params;
     VAAPIEncodeH265Context          *priv = ctx->priv_data;
-    int i;
+    int i, ref_index = 0;
 
     if (pic->type == PICTURE_TYPE_IDR) {
         av_assert0(pic->display_order == pic->encode_order);
@@ -988,6 +990,8 @@ static int vaapi_encode_h265_init_picture_params(AVCodecContext *avctx,
         av_assert0(pic->encode_order > priv->last_idr_frame);
         // Display order need not be if we have RA[SD]L pictures, though.
     }
+    if (pic->type == PICTURE_TYPE_IDR || pic->type == PICTURE_TYPE_I)
+        priv->last_intra_display_order = pic->display_order;
 
     vpic->decoded_curr_pic.picture_id    = pic->recon_surface;
     vpic->decoded_curr_pic.pic_order_cnt =
@@ -997,18 +1001,26 @@ static int vaapi_encode_h265_init_picture_params(AVCodecContext *avctx,
     for (i = 0; i < pic->nb_refs; i++) {
         VAAPIEncodePicture *ref = pic->refs[i];
         av_assert0(ref);
-        vpic->reference_frames[i].picture_id    = ref->recon_surface;
-        vpic->reference_frames[i].pic_order_cnt =
+
+        if (pic->display_order > priv->last_intra_display_order &&
+            ref->display_order <  priv->last_intra_display_order) {
+            continue;
+        }
+
+        vpic->reference_frames[ref_index].picture_id    = ref->recon_surface;
+        vpic->reference_frames[ref_index].pic_order_cnt =
             ref->display_order - priv->last_idr_frame;
-        vpic->reference_frames[i].flags =
+        vpic->reference_frames[ref_index].flags =
             (ref->display_order < pic->display_order ?
              VA_PICTURE_HEVC_RPS_ST_CURR_BEFORE : 0) |
             (ref->display_order > pic->display_order ?
              VA_PICTURE_HEVC_RPS_ST_CURR_AFTER  : 0);
+        ref_index ++;
     }
-    for (; i < FF_ARRAY_ELEMS(vpic->reference_frames); i++) {
-        vpic->reference_frames[i].picture_id = VA_INVALID_ID;
-        vpic->reference_frames[i].flags      = VA_PICTURE_HEVC_INVALID;
+    priv->valid_nb_refs = ref_index;
+    for (; ref_index < FF_ARRAY_ELEMS(vpic->reference_frames); ref_index++) {
+        vpic->reference_frames[ref_index].picture_id = VA_INVALID_ID;
+        vpic->reference_frames[ref_index].flags      = VA_PICTURE_HEVC_INVALID;
     }
 
     vpic->coded_buf = pic->output_buffer;
@@ -1131,18 +1143,18 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
 #ifdef VPG_DRIVER
     vslice->slice_fields.bits.num_ref_idx_active_override_flag = 1;
     if (pic->type == PICTURE_TYPE_P) {
-        vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs - 1;
-        for (i = 0; i < pic->nb_refs; i++) {
-            vslice->ref_pic_list0[i] = vpic->reference_frames[pic->nb_refs - 1 - i];
+        vslice->num_ref_idx_l0_active_minus1 = priv->valid_nb_refs - 1;
+        for (i = 0; i < priv->valid_nb_refs; i++) {
+            vslice->ref_pic_list0[i] = vpic->reference_frames[priv->valid_nb_refs - 1 - i];
             vslice->ref_pic_list1[i] = vslice->ref_pic_list0[i];
         }
     }
     if (pic->type == PICTURE_TYPE_B) {
-        vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs - 2;
-        for (i = 0; i < pic->nb_refs - 1; i++)
-            vslice->ref_pic_list0[i] = vpic->reference_frames[pic->nb_refs - 2 - i];
+        vslice->num_ref_idx_l0_active_minus1 = priv->valid_nb_refs - 2;
+        for (i = 0; i < priv->valid_nb_refs - 1; i++)
+            vslice->ref_pic_list0[i] = vpic->reference_frames[priv->valid_nb_refs - 2 - i];
         vslice->num_ref_idx_l1_active_minus1 = 0;
-        vslice->ref_pic_list1[0] = vpic->reference_frames[pic->nb_refs - 1];
+        vslice->ref_pic_list1[0] = vpic->reference_frames[priv->valid_nb_refs - 1];
     }
 #else
     av_assert0(pic->nb_refs <= 2);
@@ -1191,31 +1203,38 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
         mslice->short_term_ref_pic_set_sps_flag = 0;
         mslice->st_ref_pic_set.inter_ref_pic_set_prediction_flag = 0;
 #ifdef VPG_DRIVER
-        if (pic->type == PICTURE_TYPE_P || pic->type == PICTURE_TYPE_B) {
-            mslice->st_ref_pic_set.num_negative_pics = vslice->num_ref_idx_l0_active_minus1 + 1;
+        if (pic->type == PICTURE_TYPE_P ||  pic->type == PICTURE_TYPE_I) {
+            mslice->st_ref_pic_set.num_negative_pics = priv->valid_nb_refs;
             for (i = 0 ; i < mslice->st_ref_pic_set.num_negative_pics; i++) {
                 mslice->st_ref_pic_set.used_by_curr_pic_s0_flag[i] = 1;
                 if (i == 0) {
                     mslice->st_ref_pic_set.delta_poc_s0_minus1[i] =
-                        pslice->pic_order_cnt - vslice->ref_pic_list0[i].pic_order_cnt - 1;
+                        pslice->pic_order_cnt - vpic->reference_frames[priv->valid_nb_refs - 1 - i].pic_order_cnt - 1;
                 } else {
                     mslice->st_ref_pic_set.delta_poc_s0_minus1[i] =
-                         vslice->ref_pic_list0[i-1].pic_order_cnt - vslice->ref_pic_list0[i].pic_order_cnt - 1;
+                        vpic->reference_frames[priv->valid_nb_refs - i].pic_order_cnt -
+                        vpic->reference_frames[priv->valid_nb_refs - 1 - i].pic_order_cnt - 1;
                 }
             }
-
         }
 
         if (pic->type == PICTURE_TYPE_B) {
-            mslice->st_ref_pic_set.num_positive_pics = vslice->num_ref_idx_l1_active_minus1 + 1;
+            mslice->st_ref_pic_set.num_positive_pics = 1;
             for (i = 0 ; i < mslice->st_ref_pic_set.num_positive_pics; i++) {
                 mslice->st_ref_pic_set.used_by_curr_pic_s1_flag[i] = 1;
+                mslice->st_ref_pic_set.delta_poc_s1_minus1[i] =
+                    vpic->reference_frames[priv->valid_nb_refs - 1 - i].pic_order_cnt - pslice->pic_order_cnt - 1;
+            }
+            mslice->st_ref_pic_set.num_negative_pics = priv->valid_nb_refs - 1 ;
+            for (i = 0 ; i < mslice->st_ref_pic_set.num_negative_pics; i++) {
+                mslice->st_ref_pic_set.used_by_curr_pic_s0_flag[i] = 1;
                 if (i == 0) {
-                    mslice->st_ref_pic_set.delta_poc_s1_minus1[i] =
-                        vslice->ref_pic_list1[i].pic_order_cnt - pslice->pic_order_cnt - 1;
+                    mslice->st_ref_pic_set.delta_poc_s0_minus1[i] =
+                        pslice->pic_order_cnt - vpic->reference_frames[priv->valid_nb_refs - 2 - i].pic_order_cnt - 1;
                 } else {
                     mslice->st_ref_pic_set.delta_poc_s0_minus1[i] =
-                         vslice->ref_pic_list1[i].pic_order_cnt - vslice->ref_pic_list1[i-1].pic_order_cnt - 1;
+                        vpic->reference_frames[priv->valid_nb_refs - 1 - i].pic_order_cnt -
+                        vpic->reference_frames[priv->valid_nb_refs - 2 - i].pic_order_cnt - 1;
                 }
             }
         }
@@ -1303,7 +1322,7 @@ static av_cold int vaapi_encode_h265_configure(AVCodecContext *avctx)
     } else {
         av_assert0(0 && "Invalid RC mode.");
     }
-
+    ctx->i_per_idr = opt->idr_interval;
     return 0;
 }
 
@@ -1403,6 +1422,8 @@ static const AVOption vaapi_encode_h265_options[] = {
         0, AV_OPT_TYPE_CONST, { .i64 = VAAPI_RC_VBR }, 0, 0, FLAGS, "rc_strategy"},
     { "disableVUI", "disable VUI insertion to bitstream",
       OFFSET(disableVUI), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
+    { "idr_interval", "idr interval, default 0 means every I is an IDR, 1 means every other I frame is an IDR etc",
+      OFFSET(idr_interval), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, FLAGS },
     { NULL },
 };
 
