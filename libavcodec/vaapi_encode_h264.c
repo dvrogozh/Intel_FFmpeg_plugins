@@ -177,6 +177,10 @@ typedef struct VAAPIEncodeH264Context {
         VAEncMiscParameterBuffer misc;
         VAEncMiscParameterQuantization trellis;
     } trellis_params;
+    struct {
+        VAEncMiscParameterBuffer misc;
+        VAEncMiscParameterRIR rir;
+    } rir_params;
 #endif
 } VAAPIEncodeH264Context;
 
@@ -190,6 +194,9 @@ typedef struct VAAPIEncodeH264Options {
     int cabac;
     int mbbrc;
     int idr_interval;
+    int int_ref_type;
+    int int_ref_cycle_size;
+    int int_ref_qp_delta;
 } VAAPIEncodeH264Options;
 
 
@@ -988,6 +995,7 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
     VAEncSequenceParameterBufferH264 *vseq = ctx->codec_sequence_params;
     VAEncPictureParameterBufferH264  *vpic = pic->codec_picture_params;
     VAAPIEncodeH264Context           *priv = ctx->priv_data;
+    VAAPIEncodeH264Options           *opt  = ctx->codec_options;
     int i;
 
     if (pic->type == PICTURE_TYPE_IDR) {
@@ -1050,7 +1058,21 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
     pic->slice_of_mbs = (priv->mb_width * priv->mb_height) / pic->nb_slices;
     pic->slice_mod_mbs = (priv->mb_width * priv->mb_height) % pic->nb_slices;
     pic->last_mb_index = 0;
-
+#ifdef VPG_DRIVER
+    if (opt->int_ref_type > 0 && ctx->support_rir == 1) {
+        //update rir params
+        int refreshDimension = (opt->int_ref_type == 2) ? priv->mb_height : priv->mb_width;
+        int intraStripeWidthInMBs = (refreshDimension + opt->int_ref_cycle_size - 1) / opt->int_ref_cycle_size;
+        int p_idx_in_gop =  ctx->p_counter %  ctx->p_per_i;
+        if (p_idx_in_gop > opt->int_ref_cycle_size || p_idx_in_gop < 1) {
+            priv->rir_params.rir.rir_flags.value = 0;
+        } else {
+            priv->rir_params.rir.rir_flags.value = opt->int_ref_type;
+            priv->rir_params.rir.intra_insertion_location = intraStripeWidthInMBs * (p_idx_in_gop - 1);
+            priv->rir_params.rir.intra_insert_size = intraStripeWidthInMBs;
+        }
+    }
+#endif
     return 0;
 }
 
@@ -1232,8 +1254,21 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
         ctx->global_params_size[ctx->nb_global_params++] =
             sizeof(priv->trellis_params);
     }
-
     ctx->rc_params.rc.rc_flags.bits.mb_rate_control = opt->mbbrc;
+
+    if (opt->int_ref_type > 0 && ctx->support_rir == 1) {
+        priv->rir_params.misc.type =
+            VAEncMiscParameterTypeRIR;
+        priv->rir_params.rir.rir_flags.value = opt->int_ref_type;
+        // will update per frame later.
+        priv->rir_params.rir.intra_insertion_location = 0;
+        priv->rir_params.rir.intra_insert_size = 0;
+        priv->rir_params.rir.qp_delta_for_inserted_intra = opt->int_ref_qp_delta;
+        ctx->global_params[ctx->nb_global_params] =
+            &priv->rir_params.misc;
+        ctx->global_params_size[ctx->nb_global_params++] =
+            sizeof(priv->rir_params);
+    }
 #endif
     ctx->i_per_idr = opt->idr_interval;
     return 0;
@@ -1381,6 +1416,15 @@ static const AVOption vaapi_encode_h264_options[] = {
     { "P", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = TRELLIS_P }, 0, 0, FLAGS, "trellis" },
     { "B", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = TRELLIS_B }, 0, 0, FLAGS, "trellis" },
     { "all", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = TRELLIS_I | TRELLIS_P | TRELLIS_B }, 0, 0, FLAGS, "trellis" },
+    { "int_ref_type", "Intra refresh type",
+      OFFSET(int_ref_type), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 2,  FLAGS, "int_ref_type" },
+    { "none", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = 0 }, 0, 0, FLAGS, "int_ref_type" },
+    { "vertical", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = 1 }, 0, 0, FLAGS, "int_ref_type" },
+    { "horizontal", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = 2 }, 0, 0, FLAGS, "int_ref_type" },
+    { "int_ref_cycle_size", "Number of frames in the intra refresh cycle",
+      OFFSET(int_ref_cycle_size), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, UINT16_MAX, FLAGS },
+    { "int_ref_qp_delta", "QP difference for the refresh MBs",
+      OFFSET(int_ref_qp_delta), AV_OPT_TYPE_INT, { .i64 = 0 }, -51, 51, FLAGS },
 #else
     { "quality", "Set encode quality (trades off against speed, higher is faster)",
       OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 8, FLAGS },

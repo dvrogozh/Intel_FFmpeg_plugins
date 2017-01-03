@@ -1324,6 +1324,9 @@ static av_cold int vaapi_encode_config_attributes(AVCodecContext *avctx)
         { VAConfigAttribRTFormat         },
         { VAConfigAttribRateControl      },
         { VAConfigAttribEncMaxRefFrames  },
+#ifdef VPG_DRIVER
+        { VAConfigAttribEncIntraRefresh  },
+#endif
 #ifndef VPG_DRIVER
         { VAConfigAttribEncPackedHeaders },
 #endif
@@ -1476,6 +1479,13 @@ static av_cold int vaapi_encode_config_attributes(AVCodecContext *avctx)
                 .value = ctx->va_packed_headers,
             };
             break;
+#ifdef VPG_DRIVER
+        case VAConfigAttribEncIntraRefresh:
+            if (attr[i].value & (~VA_ATTRIB_NOT_SUPPORTED)) {
+                ctx->support_rir = 1;
+            }
+            break;
+#endif
         default:
             av_assert0(0 && "Unexpected config attribute.");
         }
