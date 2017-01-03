@@ -3175,6 +3175,7 @@ zmq_filter_deps="libzmq"
 zoompan_filter_deps="swscale"
 zscale_filter_deps="libzimg"
 scale_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
+procamp_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
 
 # examples
 avio_dir_cmd_deps="avformat avutil"
