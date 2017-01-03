@@ -18,9 +18,6 @@
 
 #include <va/va.h>
 #include <va/va_enc_h264.h>
-#ifdef VPG_DRIVER
-#include <va/va_private.h>
-#endif
 
 #include "libavutil/avassert.h"
 #include "libavutil/internal.h"
@@ -184,10 +181,6 @@ typedef struct VAAPIEncodeH264Context {
         VAEncMiscParameterBuffer misc;
         VAEncMiscParameterRIR rir;
     } rir_params;
-    struct {
-        VAEncMiscParameterBuffer misc;
-        VAEncMiscParameterPrivate priv;
-    } priv_params;
 #endif
 } VAAPIEncodeH264Context;
 
@@ -204,9 +197,6 @@ typedef struct VAAPIEncodeH264Options {
     int int_ref_type;
     int int_ref_cycle_size;
     int int_ref_qp_delta;
-    int direct_bias_adjust;
-    int global_motion_bias_adjust;
-    int mvcost_scaling_factor;
 } VAAPIEncodeH264Options;
 
 
@@ -1279,19 +1269,6 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
         ctx->global_params_size[ctx->nb_global_params++] =
             sizeof(priv->rir_params);
     }
-
-    if (opt->direct_bias_adjust == 1 || opt->global_motion_bias_adjust == 1) {
-        priv->priv_params.misc.type =
-            (VAEncMiscParameterType)VAEncMiscParameterTypePrivate;
-        priv->priv_params.priv.target_usage = opt->quality;
-        priv->priv_params.priv.directBiasAdjustmentEnable = opt->direct_bias_adjust;
-        priv->priv_params.priv.globalMotionBiasAdjustmentEnable = opt->global_motion_bias_adjust;
-        priv->priv_params.priv.HMEMVCostScalingFactor = opt->mvcost_scaling_factor;
-        ctx->global_params[ctx->nb_global_params] =
-            &priv->priv_params.misc;
-        ctx->global_params_size[ctx->nb_global_params++] =
-            sizeof(priv->priv_params);
-    }
 #endif
     ctx->i_per_idr = opt->idr_interval;
     return 0;
@@ -1448,12 +1425,6 @@ static const AVOption vaapi_encode_h264_options[] = {
       OFFSET(int_ref_cycle_size), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, UINT16_MAX, FLAGS },
     { "int_ref_qp_delta", "QP difference for the refresh MBs",
       OFFSET(int_ref_qp_delta), AV_OPT_TYPE_INT, { .i64 = 0 }, -51, 51, FLAGS },
-    { "direct_bias_adjust", "enable the ENC mode decision algorithm to bias to fewer B Direct/Skip types",
-      OFFSET(direct_bias_adjust), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
-    { "global_motion_bias_adjust", "enables global motion bias",
-      OFFSET(global_motion_bias_adjust), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
-    { "mvcost_scaling_factor", "MV cost scaling ratio. It is used when global_motion_bias_adjust is set",
-      OFFSET(mvcost_scaling_factor), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 3, FLAGS },
 #else
     { "quality", "Set encode quality (trades off against speed, higher is faster)",
       OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 8, FLAGS },
