@@ -507,6 +507,12 @@ static int frc_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
         }
         ctx->frame_out++;
     }
+    for (int i = 0; i < MAX_IN_BUFFER; i++)
+        if (ctx->pipeline_buffer[i] != VA_INVALID_ID) {
+            vaDestroyBuffer(ctx->hwctx->display, &ctx->pipeline_buffer[i]);
+            ctx->pipeline_buffer[i] = VA_INVALID_ID;
+        }
+
 //    if (ctx->hwctx->driver_quirks &
 //        AV_VAAPI_DRIVER_QUIRK_RENDER_PARAM_BUFFERS) {
 //        vas = vaDestroyBuffer(ctx->hwctx->display, params_id);

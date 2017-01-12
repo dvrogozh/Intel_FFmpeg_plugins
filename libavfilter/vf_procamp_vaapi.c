@@ -414,7 +414,7 @@ static int procamp_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame
            params_id);
 
     vas = vaRenderPicture(ctx->hwctx->display, ctx->va_context,
-                      &params_id, 1);
+                          &params_id, 1);
     if (vas != VA_STATUS_SUCCESS) {
         av_log(ctx, AV_LOG_ERROR, "Failed to render parameter buffer: "
                    "%d (%s).\n", vas, vaErrorStr(vas));
@@ -430,6 +430,8 @@ static int procamp_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame
         goto fail_after_render;
     }
 
+    if (params_id != VA_INVALID_ID)
+        vaDestroyBuffer(ctx->hwctx->display, &params_id);
     av_frame_copy_props(output_frame, input_frame);
     av_frame_free(&input_frame);
 
