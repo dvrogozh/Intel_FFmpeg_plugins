@@ -283,6 +283,21 @@ static int vaapi_encode_issue(AVCodecContext *avctx,
             goto fail;
     }
 #endif
+    if (ctx->va_packed_headers & VA_ENC_PACKED_HEADER_RAW_DATA &&
+        ctx->codec->write_aud_header) {
+        bit_len = 8 * sizeof(data);
+        err = ctx->codec->write_aud_header(avctx, pic, data, &bit_len);
+        if (err < 0) {
+            av_log(avctx, AV_LOG_ERROR, "Failed to write aud "
+                   "header %d: %d.\n", err);
+            goto fail;
+        }
+        err = vaapi_encode_make_packed_header(avctx, pic, VAEncPackedHeaderRawData,
+                                              data, bit_len);
+        if (err < 0)
+            goto fail;
+    }
+
     if (pic->type == PICTURE_TYPE_IDR) {
         if (ctx->va_packed_headers & VA_ENC_PACKED_HEADER_SEQUENCE &&
             ctx->codec->write_sequence_header) {

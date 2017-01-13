@@ -197,6 +197,7 @@ typedef struct VAAPIEncodeH264Options {
     int int_ref_type;
     int int_ref_cycle_size;
     int int_ref_qp_delta;
+    int insert_aud;
 } VAAPIEncodeH264Options;
 
 
@@ -779,6 +780,41 @@ static int vaapi_encode_h264_write_slice_header(AVCodecContext *avctx,
                                                         tmp, header_len);
 }
 
+static int vaapi_encode_h264_write_aud_header(AVCodecContext *avctx,
+                                              VAAPIEncodePicture *pic,
+                                              char *data, size_t *data_len)
+{
+    VAAPIEncodeContext *ctx = avctx->priv_data;
+    PutBitContext pbc;
+    char tmp[256];
+    size_t header_len;
+    int primary_pic_type;
+
+    init_put_bits(&pbc, tmp, sizeof(tmp));
+    vaapi_encode_h264_write_nal_header(&pbc, H264_NAL_AUD, 0);
+    switch (pic->type) {
+        case PICTURE_TYPE_IDR:
+        case PICTURE_TYPE_I:
+            primary_pic_type = 0;
+            break;
+        case PICTURE_TYPE_P:
+            primary_pic_type = 1;
+            break;
+        case PICTURE_TYPE_B:
+            primary_pic_type = 2;
+            break;
+        default:
+            av_assert0(0 && "unknown pic type");
+            break;
+    }
+    write_u(&pbc, 3,  primary_pic_type, primary_pic_type);
+    vaapi_encode_h264_write_trailing_rbsp(&pbc);
+    header_len = put_bits_count(&pbc);
+    flush_put_bits(&pbc);
+    return ff_vaapi_encode_h26x_nal_unit_to_byte_stream(data, data_len,
+                                                        tmp, header_len);
+}
+
 static int vaapi_encode_h264_write_extra_header(AVCodecContext *avctx,
                                                 VAAPIEncodePicture *pic,
                                                 int index, int *type,
@@ -1295,6 +1331,8 @@ static const VAAPIEncodeType vaapi_encode_type_h264 = {
     .write_slice_header    = &vaapi_encode_h264_write_slice_header,
 
     .write_extra_header    = &vaapi_encode_h264_write_extra_header,
+
+    .write_aud_header      = &vaapi_encode_h264_write_aud_header,
 };
 
 static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
@@ -1379,6 +1417,11 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
         VA_ENC_PACKED_HEADER_SLICE    | // Slice headers.
         VA_ENC_PACKED_HEADER_MISC;      // SEI.
 
+    if (opt->insert_aud == 1) {
+        ctx->va_packed_headers |=
+            VA_ENC_PACKED_HEADER_RAW_DATA;
+    }
+
     ctx->surface_width  = FFALIGN(avctx->width,  16);
     ctx->surface_height = FFALIGN(avctx->height, 16);
 
@@ -1429,6 +1472,8 @@ static const AVOption vaapi_encode_h264_options[] = {
     { "quality", "Set encode quality (trades off against speed, higher is faster)",
       OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 8, FLAGS },
 #endif
+    { "insert_aud", "insert access unit delimiter NAL",
+      OFFSET(insert_aud), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
     { "disableVUI", "disable VUI insertion to bitstream",
       OFFSET(disableVUI), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, FLAGS },
     { "cabac", "use cabac in profile > baseline, for it will improve compression ratio",

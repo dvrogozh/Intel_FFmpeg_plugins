@@ -312,6 +312,10 @@ typedef struct VAAPIEncodeType {
                                  VAAPIEncodePicture *pic,
                                  int index, int *type,
                                  char *data, size_t *data_len);
+     //Write an AU packed header, called by AVC encoder to insert AUD
+     int    (*write_aud_header)(AVCodecContext *avctx,
+                                VAAPIEncodePicture *pic,
+                                char *data, size_t *data_len);
 } VAAPIEncodeType;
 
 
