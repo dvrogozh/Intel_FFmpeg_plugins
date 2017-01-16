@@ -903,7 +903,7 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
             mseq->fixed_frame_rate_flag = 0;
         }
 
-        if (ctx->va_rc_mode == VA_RC_CBR) {
+        if (ctx->va_rc_mode == VA_RC_CBR || ctx->va_rc_mode == VA_RC_VBR) {
             priv->send_timing_sei = 1;
             mseq->nal_hrd_parameters_present_flag = 1;
 
@@ -922,7 +922,7 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
                 (ctx->hrd_params.hrd.buffer_size >> mseq->cpb_size_scale + 4) - 1;
 
             // CBR mode isn't actually available here, despite naming.
-            mseq->cbr_flag[0] = 0;
+            mseq->cbr_flag[0] = ctx->va_rc_mode == VA_RC_CBR ? 1 : 0;
 
             mseq->initial_cpb_removal_delay_length_minus1 = 23;
             mseq->cpb_removal_delay_length_minus1         = 23;
