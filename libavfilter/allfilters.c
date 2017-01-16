@@ -276,6 +276,7 @@ static void register_all(void)
     REGISTER_FILTER(SCALE_VAAPI,    scale_vaapi,    vf);
     REGISTER_FILTER(PROCAMP_VAAPI,  procamp_vaapi,  vf);
     REGISTER_FILTER(FRC_VAAPI,      frc_vaapi,      vf);
+    REGISTER_FILTER(OVERLAY_VAAPI,  overlay_vaapi,  vf);
     REGISTER_FILTER(SCALE2REF,      scale2ref,      vf);
     REGISTER_FILTER(SELECT,         select,         vf);
     REGISTER_FILTER(SELECTIVECOLOR, selectivecolor, vf);

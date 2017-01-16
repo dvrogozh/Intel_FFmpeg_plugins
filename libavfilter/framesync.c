@@ -253,7 +253,7 @@ int ff_framesync_get_frame(FFFrameSync *fs, unsigned in, AVFrame **rframe,
         if (need_copy) {
             if (!(frame = av_frame_clone(frame)))
                 return AVERROR(ENOMEM);
-            if ((ret = av_frame_make_writable(frame)) < 0) {
+            if (!frame->hw_frames_ctx && (ret = av_frame_make_writable(frame)) < 0) {
                 av_frame_free(&frame);
                 return ret;
             }

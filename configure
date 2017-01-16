@@ -3177,7 +3177,7 @@ zscale_filter_deps="libzimg"
 scale_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
 procamp_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
 frc_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
-
+overlay_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
 # examples
 avio_dir_cmd_deps="avformat avutil"
 avio_reading_deps="avformat avcodec avutil"
