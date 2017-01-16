@@ -245,6 +245,7 @@ static void register_all(void)
     REGISTER_FILTER(OCV,            ocv,            vf);
     REGISTER_FILTER(OVERLAY,        overlay,        vf);
     REGISTER_FILTER(OVERLAY_QSV,    overlay_qsv,    vf);
+    REGISTER_FILTER(VPP_QSV,        vpp_qsv,        vf);
     REGISTER_FILTER(OWDENOISE,      owdenoise,      vf);
     REGISTER_FILTER(PAD,            pad,            vf);
     REGISTER_FILTER(PALETTEGEN,     palettegen,     vf);

@@ -235,6 +235,7 @@ OBJS-$(CONFIG_OCV_FILTER)                    += vf_libopencv.o
 OBJS-$(CONFIG_OPENCL)                        += deshake_opencl.o unsharp_opencl.o
 OBJS-$(CONFIG_OVERLAY_FILTER)                += vf_overlay.o dualinput.o framesync.o
 OBJS-$(CONFIG_OVERLAY_QSV_FILTER)            += qsvvpp.o vf_overlay_qsv.o
+OBJS-$(CONFIG_VPP_QSV_FILTER)                += qsvvpp.o vf_vpp.o
 OBJS-$(CONFIG_OWDENOISE_FILTER)              += vf_owdenoise.o
 OBJS-$(CONFIG_PAD_FILTER)                    += vf_pad.o
 OBJS-$(CONFIG_PALETTEGEN_FILTER)             += vf_palettegen.o
