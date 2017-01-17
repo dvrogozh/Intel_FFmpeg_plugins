@@ -1404,6 +1404,7 @@ static av_cold int vaapi_encode_h265_init(AVCodecContext *avctx)
         ctx->max_ref_nr = 2;
     if (ctx->max_ref_nr < 1 && avctx->gop_size)
         ctx->max_ref_nr = 1;
+    avctx->field_order = AV_FIELD_PROGRESSIVE;
 #endif
     return ff_vaapi_encode_init(avctx);
 }

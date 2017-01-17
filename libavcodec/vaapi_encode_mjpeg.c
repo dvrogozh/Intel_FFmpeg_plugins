@@ -400,6 +400,7 @@ static av_cold int vaapi_encode_mjpeg_init(AVCodecContext *avctx)
 
 #ifdef VPG_DRIVER
     ctx->max_ref_nr = 2;
+    avctx->field_order = AV_FIELD_PROGRESSIVE;
 #endif
     return ff_vaapi_encode_init(avctx);
 }

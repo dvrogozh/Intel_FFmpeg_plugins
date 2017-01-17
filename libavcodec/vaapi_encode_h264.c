@@ -372,7 +372,11 @@ static void vaapi_encode_h264_write_sps(PutBitContext *pbc,
     u(1, mseq_var(gaps_in_frame_num_allowed_flag));
 
     ue(vseq->picture_width_in_mbs  - 1, pic_width_in_mbs_minus1);
-    ue(vseq->picture_height_in_mbs - 1, pic_height_in_mbs_minus1);
+    if (vseq->seq_fields.bits.frame_mbs_only_flag)
+        ue(vseq->picture_height_in_mbs - 1, pic_height_in_mbs_minus1);
+    else
+        ue(vseq->picture_height_in_mbs / 2 - 1, pic_height_in_mbs_minus1);
+
 
     u(1, vseq_field(frame_mbs_only_flag));
     if (!vseq->seq_fields.bits.frame_mbs_only_flag)
@@ -692,7 +696,11 @@ static void vaapi_encode_h264_write_sei(PutBitContext *pbc,
             write_payload = &vaapi_encode_h264_write_pic_timing;
             break;
         case SEI_TYPE_USER_DATA_UNREGISTERED:
+#ifdef VPG_DRIVER
+            if (pic->encode_order != 0 || pic->type != PICTURE_TYPE_IDR)
+#else
             if (pic->encode_order != 0)
+#endif
                 continue;
             write_payload = &vaapi_encode_h264_write_identifier;
             break;
@@ -868,6 +876,12 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
 
         vseq->seq_fields.bits.chroma_format_idc = 1;
         vseq->seq_fields.bits.frame_mbs_only_flag = 1;
+#ifdef VPG_DRIVER
+        if (avctx->field_order != AV_FIELD_UNKNOWN && avctx->field_order != AV_FIELD_PROGRESSIVE) {
+            vseq->seq_fields.bits.frame_mbs_only_flag = 0;
+            vseq->picture_height_in_mbs = ((priv->mb_height + 1) >> 1) * 2;
+        }
+#endif
         vseq->seq_fields.bits.direct_8x8_inference_flag = 1;
         vseq->seq_fields.bits.log2_max_frame_num_minus4 = 4;
         vseq->seq_fields.bits.pic_order_cnt_type = 0;
@@ -884,6 +898,12 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
             vseq->frame_crop_top_offset    = 0;
             vseq->frame_crop_bottom_offset =
                 (ctx->surface_height - avctx->height) / 2;
+#ifdef VPG_DRIVER
+            if (avctx->field_order != AV_FIELD_UNKNOWN && avctx->field_order != AV_FIELD_PROGRESSIVE) {
+                vseq->frame_crop_bottom_offset =
+                    (ctx->surface_height/2 - avctx->height/2) / 2;
+            }
+#endif
         } else {
             vseq->frame_cropping_flag = 0;
         }
@@ -1048,6 +1068,14 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
         }
         ++priv->cpb_delay;
     }
+#ifdef VPG_DRIVER
+    if (pic->second_field_flag) {
+        if (pic->type != PICTURE_TYPE_B) {
+           vpic->frame_num =  vpic->frame_num  - 1;
+           --priv->next_frame_num;
+        }
+    }
+#endif
     priv->dpb_delay = pic->display_order - pic->encode_order + 1;
 
     vpic->frame_num = vpic->frame_num &
@@ -1058,8 +1086,23 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
     vpic->CurrPic.flags               = 0;
     vpic->CurrPic.TopFieldOrderCnt    = pic->display_order - priv->last_idr_frame;
     vpic->CurrPic.BottomFieldOrderCnt = pic->display_order - priv->last_idr_frame;
-
-    for (i = 0; i < pic->nb_refs; i++) {
+#ifdef VPG_DRIVER
+    if (avctx->field_order != AV_FIELD_PROGRESSIVE && avctx->field_order != AV_FIELD_UNKNOWN) {
+        if (pic->bottom_field) {
+            vpic->CurrPic.flags               = VA_PICTURE_H264_BOTTOM_FIELD;
+        } else {
+            vpic->CurrPic.flags               = VA_PICTURE_H264_TOP_FIELD;
+        }
+        if (avctx->field_order == AV_FIELD_TT || avctx->field_order == AV_FIELD_TB) {
+            vpic->CurrPic.TopFieldOrderCnt    = (pic->display_order - priv->last_idr_frame) * 2;
+            vpic->CurrPic.BottomFieldOrderCnt = (pic->display_order - priv->last_idr_frame) * 2 + 1;
+        } else {
+            vpic->CurrPic.TopFieldOrderCnt    = (pic->display_order - priv->last_idr_frame) * 2 + 1;
+            vpic->CurrPic.BottomFieldOrderCnt = (pic->display_order - priv->last_idr_frame) * 2;
+        }
+    }
+#endif
+    for (i = 0; i < pic->nb_refs; i++){
         VAAPIEncodePicture *ref = pic->refs[i];
         av_assert0(ref && ref->encode_order < pic->encode_order);
         vpic->ReferenceFrames[i].picture_id = ref->recon_surface;
@@ -1067,7 +1110,27 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
         vpic->ReferenceFrames[i].flags = VA_PICTURE_H264_SHORT_TERM_REFERENCE;
         vpic->ReferenceFrames[i].TopFieldOrderCnt    = ref->display_order - priv->last_idr_frame;
         vpic->ReferenceFrames[i].BottomFieldOrderCnt = ref->display_order - priv->last_idr_frame;
+#ifdef VPG_DRIVER
+        if (avctx->field_order == AV_FIELD_TT || avctx->field_order == AV_FIELD_TB) {
+            vpic->ReferenceFrames[i].TopFieldOrderCnt    = (ref->display_order - priv->last_idr_frame) * 2;
+            vpic->ReferenceFrames[i].BottomFieldOrderCnt = (ref->display_order - priv->last_idr_frame) * 2 + 1;
+        }
+        if (avctx->field_order == AV_FIELD_BT || avctx->field_order == AV_FIELD_BB) {
+            vpic->ReferenceFrames[i].TopFieldOrderCnt    = (ref->display_order - priv->last_idr_frame) * 2 + 1;
+            vpic->ReferenceFrames[i].BottomFieldOrderCnt = (ref->display_order - priv->last_idr_frame) * 2;
+        }
+#endif
     }
+#ifdef VPG_DRIVER
+    if (pic->second_field_flag && pic->type != PICTURE_TYPE_B) {
+        vpic->ReferenceFrames[i].picture_id = vpic->CurrPic.picture_id;
+        vpic->ReferenceFrames[i].frame_idx  = vpic->CurrPic.frame_idx;
+        vpic->ReferenceFrames[i].flags = VA_PICTURE_H264_SHORT_TERM_REFERENCE;
+        vpic->ReferenceFrames[i].TopFieldOrderCnt    = vpic->CurrPic.TopFieldOrderCnt;
+        vpic->ReferenceFrames[i].BottomFieldOrderCnt = vpic->CurrPic.BottomFieldOrderCnt;
+        i++;
+    }
+#endif
     for (; i < FF_ARRAY_ELEMS(vpic->ReferenceFrames); i++) {
         vpic->ReferenceFrames[i].picture_id = VA_INVALID_ID;
         vpic->ReferenceFrames[i].flags = VA_PICTURE_H264_INVALID;
@@ -1093,6 +1156,12 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
 
     pic->slice_of_mbs = (priv->mb_width * priv->mb_height) / pic->nb_slices;
     pic->slice_mod_mbs = (priv->mb_width * priv->mb_height) % pic->nb_slices;
+#ifdef VPG_DRIVER
+    if (avctx->field_order != AV_FIELD_PROGRESSIVE && avctx->field_order != AV_FIELD_UNKNOWN) {
+        pic->slice_of_mbs = (priv->mb_width * (priv->mb_height + 1) / 2) / pic->nb_slices;
+        pic->slice_mod_mbs = (priv->mb_width * (priv->mb_height + 1) / 2) % pic->nb_slices;
+    }
+#endif
     pic->last_mb_index = 0;
 #ifdef VPG_DRIVER
     if (opt->int_ref_type > 0 && ctx->support_rir == 1) {
@@ -1112,6 +1181,67 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
     return 0;
 }
 
+#ifdef VPG_DRIVER
+static void vaapi_encode_h264_fill_reflist_for_field(AVCodecContext *avctx,
+                                                     VAAPIEncodePicture *pic,
+                                                     VAAPIEncodeSlice *slice)
+{
+    VAAPIEncodeContext                 *ctx = avctx->priv_data;
+    VAEncSequenceParameterBufferH264  *vseq = ctx->codec_sequence_params;
+    VAEncPictureParameterBufferH264   *vpic = pic->codec_picture_params;
+    VAEncSliceParameterBufferH264   *vslice = slice->codec_slice_params;
+    VAAPIEncodeH264Context            *priv = ctx->priv_data;
+    int i;
+    int tff = avctx->field_order == AV_FIELD_TT || avctx->field_order == AV_FIELD_TB;
+    switch (pic->type) {
+        case PICTURE_TYPE_P:
+            if (!pic->second_field_flag) {
+                for (i = 0; i < pic->nb_refs; i++) {
+                    vslice->RefPicList0[i * 2] = vpic->ReferenceFrames[pic->nb_refs - 1 - i];
+                    vslice->RefPicList0[i * 2 + 1] = vpic->ReferenceFrames[pic->nb_refs - 1 - i];
+                    vslice->RefPicList0[i * 2].flags |= tff ? VA_PICTURE_H264_TOP_FIELD : VA_PICTURE_H264_BOTTOM_FIELD;
+                    vslice->RefPicList0[i * 2 + 1].flags |= tff ? VA_PICTURE_H264_BOTTOM_FIELD : VA_PICTURE_H264_TOP_FIELD;
+                }
+                vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs * 2 - 1;
+            } else {
+                for (i = 0; i < pic->nb_refs; i++) {
+                    vslice->RefPicList0[i * 2] = vpic->ReferenceFrames[pic->nb_refs - 1 - i];
+                    vslice->RefPicList0[i * 2 + 1] = vpic->ReferenceFrames[pic->nb_refs - i];
+                    vslice->RefPicList0[i * 2].flags |= tff ? VA_PICTURE_H264_BOTTOM_FIELD : VA_PICTURE_H264_TOP_FIELD;
+                    vslice->RefPicList0[i * 2 + 1].flags |= tff ? VA_PICTURE_H264_TOP_FIELD : VA_PICTURE_H264_BOTTOM_FIELD;
+                }
+                vslice->RefPicList0[pic->nb_refs * 2] = vpic->ReferenceFrames[0];
+                vslice->RefPicList0[pic->nb_refs * 2].flags |= tff ? VA_PICTURE_H264_TOP_FIELD : VA_PICTURE_H264_BOTTOM_FIELD;
+                if (pic->nb_refs >= ctx->max_ref_nr) {
+                    vslice->num_ref_idx_l0_active_minus1 = (ctx->max_ref_nr - 1) * 2;
+                } else {
+                    vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs * 2;
+                }
+            }
+            break;
+        case PICTURE_TYPE_B:
+            for (i = 0; i < pic->nb_refs - 1; i++) {
+                vslice->RefPicList0[i * 2] = vpic->ReferenceFrames[pic->nb_refs - 2 - i];
+                vslice->RefPicList0[i * 2 + 1] = vpic->ReferenceFrames[pic->nb_refs - 2 - i];
+                if (!pic->second_field_flag) {
+                    vslice->RefPicList0[i * 2].flags |= tff ? VA_PICTURE_H264_TOP_FIELD : VA_PICTURE_H264_BOTTOM_FIELD;
+                    vslice->RefPicList0[i * 2 + 1].flags |= tff ? VA_PICTURE_H264_BOTTOM_FIELD : VA_PICTURE_H264_TOP_FIELD;
+                } else {
+                    vslice->RefPicList0[i * 2].flags |= tff ? VA_PICTURE_H264_BOTTOM_FIELD : VA_PICTURE_H264_TOP_FIELD;
+                    vslice->RefPicList0[i * 2 + 1].flags |= tff ? VA_PICTURE_H264_TOP_FIELD : VA_PICTURE_H264_BOTTOM_FIELD;
+                }
+            }
+            vslice->num_ref_idx_l0_active_minus1 = (pic->nb_refs - 1) * 2 - 1 ;
+            vslice->num_ref_idx_l1_active_minus1 = 1;
+            vslice->RefPicList1[0] = vpic->ReferenceFrames[pic->nb_refs - 1];
+            vslice->RefPicList1[0].flags |= tff ? VA_PICTURE_H264_TOP_FIELD : VA_PICTURE_H264_BOTTOM_FIELD;
+            vslice->RefPicList1[1] = vpic->ReferenceFrames[pic->nb_refs - 1];
+            vslice->RefPicList1[1].flags |= tff ? VA_PICTURE_H264_BOTTOM_FIELD : VA_PICTURE_H264_TOP_FIELD;
+            break;
+    }
+
+}
+#endif
 static int vaapi_encode_h264_init_slice_params(AVCodecContext *avctx,
                                                VAAPIEncodePicture *pic,
                                                VAAPIEncodeSlice *slice)
@@ -1123,7 +1253,9 @@ static int vaapi_encode_h264_init_slice_params(AVCodecContext *avctx,
     VAAPIEncodeH264Context            *priv = ctx->priv_data;
     VAAPIEncodeH264Slice            *pslice;
     VAAPIEncodeH264MiscSliceParams  *mslice;
-    int i;
+    int i, mbnum;
+
+    mbnum = priv->mb_width * priv->mb_height;
 
     slice->priv_data = av_mallocz(sizeof(*pslice));
     if (!slice->priv_data)
@@ -1162,16 +1294,33 @@ static int vaapi_encode_h264_init_slice_params(AVCodecContext *avctx,
     if (pic->slice_mod_mbs > 0)
         pic->slice_mod_mbs --;
     pic->last_mb_index += vslice->num_macroblocks;
+#ifdef VPG_DRIVER
+    if (avctx->field_order != AV_FIELD_PROGRESSIVE && avctx->field_order != AV_FIELD_UNKNOWN) {
+        mslice->field_pic_flag = 1;
+        mbnum = priv->mb_width * (priv->mb_height + 1) / 2;
+    }
+#endif
 
     vslice->macroblock_info = VA_INVALID_ID;
 
     vslice->pic_parameter_set_id = vpic->pic_parameter_set_id;
     vslice->idr_pic_id = priv->idr_pic_count;
-    if (pic->last_mb_index == priv->mb_width * priv->mb_height)
+    if (pic->last_mb_index == mbnum)
         priv->idr_pic_count ++;
+
+#ifdef VPG_DRIVER
+    if (pic->bottom_field) {
+        vslice->pic_order_cnt_lsb = (vpic->CurrPic.BottomFieldOrderCnt) &
+            ((1 << (4 + vseq->seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4)) - 1);
+        mslice->bottom_field_flag = 1;
+    } else {
+        vslice->pic_order_cnt_lsb = (vpic->CurrPic.TopFieldOrderCnt) &
+            ((1 << (4 + vseq->seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4)) - 1);
+    }
+#else
     vslice->pic_order_cnt_lsb = (pic->display_order - priv->last_idr_frame) &
         ((1 << (4 + vseq->seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4)) - 1);
-
+#endif
     for (i = 0; i < FF_ARRAY_ELEMS(vslice->RefPicList0); i++) {
         vslice->RefPicList0[i].picture_id = VA_INVALID_ID;
         vslice->RefPicList0[i].flags      = VA_PICTURE_H264_INVALID;
@@ -1182,17 +1331,21 @@ static int vaapi_encode_h264_init_slice_params(AVCodecContext *avctx,
 #ifdef VPG_DRIVER
     vslice->num_ref_idx_active_override_flag = 1;
 
-    if (pic->type == PICTURE_TYPE_P) {
-        vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs - 1;
-        for (i = 0; i < pic->nb_refs; i++)
-            vslice->RefPicList0[i] = vpic->ReferenceFrames[pic->nb_refs - 1 - i];
-    }
-    if (pic->type == PICTURE_TYPE_B) {
-        vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs - 2;
-        for (i = 0; i < pic->nb_refs - 1; i++)
-            vslice->RefPicList0[i] = vpic->ReferenceFrames[pic->nb_refs - 2 - i];
-        vslice->num_ref_idx_l1_active_minus1 = 0;
-        vslice->RefPicList1[0] = vpic->ReferenceFrames[pic->nb_refs - 1];
+    if (avctx->field_order != AV_FIELD_PROGRESSIVE && avctx->field_order != AV_FIELD_UNKNOWN) {
+        vaapi_encode_h264_fill_reflist_for_field(avctx, pic, slice);
+    } else {
+        if (pic->type == PICTURE_TYPE_P) {
+            for (i = 0; i < pic->nb_refs; i++)
+                vslice->RefPicList0[i] = vpic->ReferenceFrames[pic->nb_refs - 1 - i];
+            vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs - 1;
+        }
+        if (pic->type == PICTURE_TYPE_B) {
+            vslice->num_ref_idx_l0_active_minus1 = pic->nb_refs - 2;
+            for (i = 0; i < pic->nb_refs - 1; i++)
+               vslice->RefPicList0[i] = vpic->ReferenceFrames[pic->nb_refs - 2 - i];
+            vslice->num_ref_idx_l1_active_minus1 = 0;
+            vslice->RefPicList1[0] = vpic->ReferenceFrames[pic->nb_refs - 1];
+        }
     }
 #else
     av_assert0(pic->nb_refs <= 2);
@@ -1433,6 +1586,8 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
         ctx->max_ref_nr = 2;
     if (ctx->max_ref_nr < 1 && avctx->gop_size)
         ctx->max_ref_nr = 1;
+    if (avctx->field_order != AV_FIELD_PROGRESSIVE && avctx->field_order != AV_FIELD_UNKNOWN)
+        ctx->surface_height = FFALIGN(avctx->height, 32);
 #endif
     return ff_vaapi_encode_init(avctx);
 }
