@@ -43,6 +43,14 @@ static int vaapi_encode_make_packed_header(AVCodecContext *avctx,
         .has_emulation_bytes = 1,
     };
 
+#ifdef VPG_DRIVER
+    // Found emulation byte is inserted in start code by vpg driver
+    if (ctx->bipyramid && type == VAEncPackedHeaderSlice) {
+        params.has_emulation_bytes = 0;
+        av_log(avctx, AV_LOG_WARNING, "change slice has_emulation_bytes to 0.\n");
+    }
+#endif
+
     tmp = av_realloc_array(pic->param_buffers, sizeof(*tmp), (pic->nb_param_buffers + 2));
     if (!tmp) {
         return AVERROR(ENOMEM);
@@ -500,6 +508,7 @@ static int vaapi_encode_field_issue(AVCodecContext *avctx,
    else
        pic->bottom_field = 1;
    pic->second_field_flag = 0;
+   pic->second_field_be_ref = 0;
    err = vaapi_encode_one_field(avctx, pic);
    if ( err < 0 ) {
        av_log(avctx, AV_LOG_ERROR, "encode top field error = %d\n", err);
@@ -530,12 +539,23 @@ static int vaapi_encode_field_issue(AVCodecContext *avctx,
    else
        pic->second_field->bottom_field = 0;
    pic->second_field->second_field_flag = 1;
+   pic->second_field->second_field_be_ref = 0;
    pic->second_field->nb_slices = pic->nb_slices;
    pic->second_field->display_order = pic->display_order;
    pic->second_field->encode_order = pic->encode_order;
    pic->second_field->nb_refs = pic->nb_refs;
+   pic->second_field->nb_dpbs = pic->nb_dpbs;
+   pic->second_field->mini_gop_cnt = pic->mini_gop_cnt;
+   pic->second_field->frame_num = pic->frame_num;
+   pic->second_field->b_frame_ref_flag = pic->b_frame_ref_flag;
+   for (i = 0; i < 2; i++) {
+       pic->second_field->adaptive_ref_pic_marking[i][0] = UINT_MAX;
+       pic->second_field->adaptive_ref_pic_marking[i][1] = UINT_MAX;
+   }
    for (i = 0 ; i < pic->second_field->nb_refs; i++)
        pic->second_field->refs[i] = pic->refs[i];
+   for (i = 0 ; i < pic->second_field->nb_dpbs; i++)
+       pic->second_field->dpbs[i] = pic->dpbs[i];
    err = vaapi_encode_one_field(avctx, pic->second_field);
    if ( err < 0 ) {
        av_log(avctx, AV_LOG_ERROR, "encode top field error = %d\n", err);
@@ -1198,10 +1218,13 @@ static int vaapi_encode_step(AVCodecContext *avctx,
 }
 
 #ifdef VPG_DRIVER
-static void vaapi_encode_add_reference (VAAPIEncodeContext *ctx,
+static void vaapi_encode_add_reference (AVCodecContext *avctx,
         VAAPIEncodePicture *pic)
 {
+    VAAPIEncodeContext *ctx = avctx->priv_data;
     int i;
+
+    av_assert0 (pic->type != PICTURE_TYPE_B || pic->b_frame_ref_flag);
 
     if (pic->type == PICTURE_TYPE_IDR) {
         // clear the reference frame list
@@ -1213,6 +1236,34 @@ static void vaapi_encode_add_reference (VAAPIEncodeContext *ctx,
     }
 
     if (ctx->ref_nr == ctx->max_ref_nr) {
+        // calculate adaptive_ref_pic_marking params
+        if (ctx->bipyramid) {
+            VAAPIEncodePicture *out_default = NULL;
+            unsigned int out_pic_num[2], current_pic_num;
+
+            out_default = ctx->references[0];
+            for (i = 0 ; i < ctx->ref_nr; i++) {
+                if (ctx->references[i]->encode_order < out_default->encode_order)
+                    out_default = ctx->references[i];
+            }
+
+            if (out_default != ctx->references[0]) {
+                if (avctx->field_order == AV_FIELD_UNKNOWN || avctx->field_order == AV_FIELD_PROGRESSIVE) {
+                    current_pic_num = pic->frame_num;
+                    out_pic_num[0] = ctx->references[0]->frame_num;
+                } else {
+                    current_pic_num = 2 * pic->frame_num + 1;
+                    out_pic_num[0] = 2 * ctx->references[0]->frame_num + pic->second_field_flag;
+                    out_pic_num[1] = 2 * ctx->references[0]->frame_num + !pic->second_field_flag;
+                }
+                pic->adaptive_ref_pic_marking[0][0] = 1;
+                pic->adaptive_ref_pic_marking[0][1] = current_pic_num - out_pic_num[0] - 1;
+                if (avctx->field_order != AV_FIELD_UNKNOWN && avctx->field_order != AV_FIELD_PROGRESSIVE) {
+                    pic->adaptive_ref_pic_marking[1][0] = 1;
+                    pic->adaptive_ref_pic_marking[1][1] = current_pic_num - out_pic_num[1] - 1;
+                }
+            }
+        }
         // remove the old reference frame
         for (i = 0 ; i < ctx->ref_nr - 1; i++) {
            ctx->references[i]->ref_count --;
@@ -1223,9 +1274,59 @@ static void vaapi_encode_add_reference (VAAPIEncodeContext *ctx,
         ctx->ref_nr --;
     }
 
-    ctx->references[ctx->ref_nr] = pic;
-    ctx->references[ctx->ref_nr]->ref_count ++;
-    ctx->ref_nr++;
+    if (pic->type == PICTURE_TYPE_B) {
+        av_assert0 (ctx->ref_nr > 0);
+
+        // insert by POC order
+        for (i = ctx->ref_nr - 1; i >= 0; i--)
+            ctx->references[i + 1] = ctx->references[i];
+
+        for (i = 0; i < ctx->ref_nr; i++) {
+            if (i == ctx->ref_nr - 1) {
+                if (ctx->references[i]->display_order > pic->display_order)
+                    ctx->references[i] = pic;
+                else
+                    ctx->references[i + 1] = pic;
+                break;
+            }
+
+            if (ctx->references[i]->display_order > pic->display_order) {
+                ctx->references[i] = pic;
+                break;
+            } else
+                ctx->references[i + 1] = ctx->references[i + 2];
+        }
+        pic->ref_count ++;
+        ctx->ref_nr++;
+    } else {
+        ctx->references[ctx->ref_nr] = pic;
+        ctx->references[ctx->ref_nr]->ref_count ++;
+        ctx->ref_nr++;
+    }
+
+}
+
+static int vaapi_encode_get_encode_order (int display_order, int begin,
+                                        int end, int counter,int * ref)
+{
+    int pivot;
+
+    av_assert0 (display_order >= begin);
+    av_assert0 (display_order < end);
+
+    if (end - begin > 1)
+        *ref = 1;
+    else
+        *ref = 0;
+
+    pivot = (begin + end) / 2;
+    if (display_order == pivot)
+        return counter;
+    else if (display_order < pivot)
+        return vaapi_encode_get_encode_order (display_order, begin, pivot, counter + 1, ref);
+    else
+        return vaapi_encode_get_encode_order (display_order, pivot + 1, end,
+            counter + 1 + pivot - begin, ref);
 }
 #endif
 
@@ -1268,7 +1369,14 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
 
 #ifdef VPG_DRIVER
         pic->ref_count = 0;
-        vaapi_encode_add_reference(ctx, pic);
+        if (ctx->bipyramid) {
+            pic->frame_num = ctx->current_frame_num = 0;
+            for (i = 0; i < 2; i++) {
+                pic->adaptive_ref_pic_marking[i][0] = UINT_MAX;
+                pic->adaptive_ref_pic_marking[i][1] = UINT_MAX;
+            }
+        }
+        vaapi_encode_add_reference(avctx, pic);
 #endif
         *pic_out = pic;
         return 0;
@@ -1279,11 +1387,21 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
 
 #ifdef VPG_DRIVER
     pic->ref_count = 0;
+    if (ctx->bipyramid) {
+        for (i = 0; i < 2; i++) {
+            pic->adaptive_ref_pic_marking[i][0] = UINT_MAX;
+            pic->adaptive_ref_pic_marking[i][1] = UINT_MAX;
+        }
+    }
 #endif
     if (ctx->p_per_i == 0 || ctx->p_counter == ctx->p_per_i || ctx->force_idr_frame == 1) {
         if (ctx->force_idr_frame == 1 || ctx->i_per_idr == 0 || ctx->i_counter == ctx->i_per_idr) {
             pic->type = PICTURE_TYPE_IDR;
             ctx->i_counter = 0;
+#ifdef VPG_DRIVER
+            if (ctx->bipyramid)
+                pic->frame_num = ctx->current_frame_num = 0;
+#endif
         } else {
             pic->type = PICTURE_TYPE_I;
             ++ctx->i_counter;
@@ -1293,6 +1411,11 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
                 pic->refs[i]->ref_count++;
             }
             pic->nb_refs = ctx->ref_nr;
+
+            if (ctx->bipyramid) {
+                ctx->current_frame_num++;
+                pic->frame_num = ctx->current_frame_num;
+            }
 #endif
         }
         ctx->force_idr_frame = 0;
@@ -1305,6 +1428,11 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
             pic->refs[i]->ref_count++;
         }
         pic->nb_refs = ctx->ref_nr;
+        if (ctx->bipyramid) {
+            pic->mini_gop_cnt = ctx->p_counter + 1;
+            ctx->current_frame_num++;
+            pic->frame_num = ctx->current_frame_num;
+        }
 #else
         pic->refs[0] = ctx->pic_end;
         pic->nb_refs = 1;
@@ -1315,7 +1443,12 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
     start = end = pic;
 
 #ifdef VPG_DRIVER
-    vaapi_encode_add_reference(ctx, end);
+    if (ctx->bipyramid) {
+        // update poc info for pyramid-b case
+        pic->encode_order = ctx->input_order;
+        pic->display_order = ctx->input_order + ctx->b_per_p;
+    }
+    vaapi_encode_add_reference(avctx, end);
 #endif
     if (pic->type != PICTURE_TYPE_IDR) {
         // If that was not an IDR frame, add B-frames display-before and
@@ -1329,8 +1462,15 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
 
             pic->type = PICTURE_TYPE_B;
 #ifdef VPG_DRIVER
-            {
-                int j;
+            int j;
+
+            if (ctx->bipyramid) {
+                pic->mini_gop_cnt = ctx->p_counter;
+                for (j = 0; j < 2; j++) {
+                    pic->adaptive_ref_pic_marking[j][0] = UINT_MAX;
+                    pic->adaptive_ref_pic_marking[j][1] = UINT_MAX;
+                }
+            } else {
                 for (j = 0 ; j < ctx->ref_nr; j++) {
                     pic->refs[j] = ctx->references[j];
                     pic->refs[j]->ref_count++;
@@ -1364,14 +1504,99 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
                 pic->encode_order = ctx->input_order + i;
             else if (pic == end)
                 pic->encode_order = ctx->input_order;
+#ifdef VPG_DRIVER
+            else {
+                if (ctx->bipyramid && (pic->type == PICTURE_TYPE_B)) {
+                    // for Pyramid-B
+                    pic->encode_order = vaapi_encode_get_encode_order (i, 0, ctx->b_per_p, 0, &pic->b_frame_ref_flag);
+                    pic->encode_order += ctx->input_order + 1;
+                } else
+                    pic->encode_order = ctx->input_order + i + 1;
+            }
+#else
             else
                 pic->encode_order = ctx->input_order + i + 1;
+#endif
         }
 
         av_assert0(ctx->pic_end);
         ctx->pic_end->next = start;
         ctx->pic_end = end;
     }
+
+#ifdef VPG_DRIVER
+    if (ctx->bipyramid && (start->type != PICTURE_TYPE_IDR)) {
+        // for Pyamid-B, sort encode window by encode_order
+        VAAPIEncodePicture *pic_b[16];
+        int j;
+
+        i = 0;
+
+        // pic_b[0] is P frame
+        for (pic = start; pic; pic = pic->next)
+            pic_b[i++] = pic;
+        av_assert0 (i == ctx->b_per_p + 1);
+
+        for (i = 0; i <= ctx->b_per_p; i++) {
+            for (j = 0; j <= ctx->b_per_p; j ++) {
+                if (pic_b[j]->encode_order == ctx->input_order + i) {
+                    if (i == 0)
+                        start = pic = pic_b[j];
+                    else {
+                        pic->next = pic_b[j];
+                        pic = pic->next;
+                    }
+                    break;
+                }
+            }
+            av_assert0 (j <= ctx->b_per_p);
+        }
+
+        end = pic;
+        end->next = NULL;
+
+        // set B frames ref-list
+        for (pic = start; pic; pic = pic->next) {
+            if (pic->type == PICTURE_TYPE_B) {
+                for (j = 0; j < MAX_PICTURE_REFERENCES; j++)
+                    pic->refs[j] = NULL;
+
+                for (j = 0 ; j < ctx->ref_nr; j++)
+                    pic->dpbs[j] = ctx->references[j];
+                pic->nb_dpbs = ctx->ref_nr;
+
+                for (j = 0 ; j < ctx->ref_nr; j++) {
+                    if (j > 1 && ctx->references[j]->display_order > pic->display_order && ctx->references[j - 1]->display_order > pic->display_order)
+                        break;
+                    pic->refs[j] = ctx->references[j];
+                    pic->refs[j]->ref_count++;
+                }
+                pic->nb_refs = j;
+
+                if (pic->b_frame_ref_flag) {
+                    ctx->current_frame_num++;
+                    pic->frame_num = ctx->current_frame_num;
+                    vaapi_encode_add_reference (avctx, pic);
+                } else
+                    pic->frame_num = ctx->current_frame_num;
+            }
+        }
+
+        // resume by display-order
+        start = pic = pic_b[0];
+        for (i = 0; i <= ctx->b_per_p; i++) {
+            pic->next = pic_b[i];
+            pic = pic->next;
+        }
+        end = pic;
+        end->next = NULL;
+    }
+#endif
+
+    av_assert0(ctx->pic_end);
+    ctx->pic_end->next = start;
+    ctx->pic_end = end;
+
     *pic_out = start;
 
     av_log(avctx, AV_LOG_DEBUG, "Pictures:");
@@ -1415,23 +1640,88 @@ static int vaapi_encode_truncate_gop(AVCodecContext *avctx)
 #ifdef VPG_DRIVER
             int last_ref = last_pic->nb_refs - 1;
 
-            last_pic->type = PICTURE_TYPE_P;
-            last_pic->encode_order = last_pic->refs[last_ref]->encode_order;
+            if (!ctx->bipyramid) {
+                last_pic->type = PICTURE_TYPE_P;
+                last_pic->encode_order = last_pic->refs[last_ref]->encode_order;
 
-            for (pic = ctx->pic_start; pic != last_pic; pic = pic->next) {
-                if (pic->type == PICTURE_TYPE_B &&
-                    pic->refs[last_ref] == last_pic->refs[last_ref]) {
-                    if (last_pic->refs[last_ref])
-                       pic->refs[last_ref]->ref_count --;
-                    pic->refs[last_ref] = last_pic;
-                    pic->refs[last_ref]->ref_count ++;
+                for (pic = ctx->pic_start; pic != last_pic; pic = pic->next) {
+                    if (pic->type == PICTURE_TYPE_B &&
+                        pic->refs[last_ref] == last_pic->refs[last_ref]) {
+                        if (last_pic->refs[last_ref])
+                           pic->refs[last_ref]->ref_count --;
+                        pic->refs[last_ref] = last_pic;
+                        pic->refs[last_ref]->ref_count ++;
+                    }
+                }
+                last_pic->nb_refs = last_pic->refs[last_ref] ?  last_pic->nb_refs - 1 :  last_pic->nb_refs;
+
+                if (last_pic->refs[last_ref])
+                    last_pic->refs[last_ref]->ref_count--;
+                last_pic->refs[last_ref] = NULL;
+            } else {
+                // Fix up for Pyramid-B
+                VAAPIEncodePicture *pic_p = NULL;
+                int i;
+
+                // find P frame
+                for (pic = ctx->pic_start; pic; pic = pic->next) {
+                    if (pic->mini_gop_cnt == last_pic->mini_gop_cnt && pic->type == PICTURE_TYPE_P)
+                        pic_p = pic;
+                }
+                av_assert0 (pic_p);
+
+                last_pic->encode_order = pic_p->encode_order;
+                last_pic->frame_num = pic_p->frame_num;
+
+                // set other B frames
+                for (pic = ctx->pic_start; pic != last_pic; pic = pic->next) {
+                    if (pic->mini_gop_cnt == last_pic->mini_gop_cnt && pic->type == PICTURE_TYPE_B) {
+                        if (pic == last_pic)
+                            continue;
+                        pic->b_frame_ref_flag = 0;
+                        pic->frame_num = pic_p->frame_num;
+                        pic->encode_order = ++pic_p->encode_order;
+                        for (i = 0; i < 2; i++) {
+                            pic->adaptive_ref_pic_marking[i][0] = UINT_MAX;
+                            pic->adaptive_ref_pic_marking[i][1] = UINT_MAX;
+                        }
+
+                        for (i = 0; i < pic->nb_refs; i++)
+                            pic->refs[i]->ref_count --;
+
+                        pic->nb_refs = pic_p->nb_refs;
+                        pic->nb_dpbs = pic_p->nb_refs;
+                        for (i = 0; i < pic_p->nb_refs - 1; i++) {
+                            pic->refs[i] = pic_p->refs[i + 1];
+                            pic->dpbs[i] = pic_p->refs[i + 1];
+                            pic->refs[i]->ref_count ++;
+                        }
+                        pic->dpbs[i] = last_pic;
+                        pic->refs[i++] = last_pic;
+                        last_pic->ref_count ++;
+                        for (; i < MAX_PICTURE_REFERENCES; i++)
+                            pic->refs[i] = NULL;
+                    }
+                }
+
+                // process last B
+                last_pic->b_frame_ref_flag = 0;
+                last_pic->type = PICTURE_TYPE_P;
+                for (i = 0; i < 2; i++) {
+                    last_pic->adaptive_ref_pic_marking[i][0] = pic_p->adaptive_ref_pic_marking[i][0];
+                    last_pic->adaptive_ref_pic_marking[i][1] = pic_p->adaptive_ref_pic_marking[i][1];
+                }
+
+                for (i = 0; i < last_pic->nb_refs; i++)
+                    last_pic->refs[i]->ref_count --;
+
+                last_pic->nb_refs = pic_p->nb_refs;
+                for (i = 0; i < MAX_PICTURE_REFERENCES; i++) {
+                    last_pic->refs[i] = pic_p->refs[i];
+                    if (last_pic->refs[i])
+                        last_pic->refs[i]->ref_count ++;
                 }
             }
-            last_pic->nb_refs = last_pic->refs[last_ref] ?  last_pic->nb_refs - 1 :  last_pic->nb_refs;
-
-            if (last_pic->refs[last_ref])
-                last_pic->refs[last_ref]->ref_count--;
-            last_pic->refs[last_ref] = NULL;
 #else
             last_pic->type = PICTURE_TYPE_P;
             last_pic->encode_order = last_pic->refs[1]->encode_order;
@@ -1493,6 +1783,7 @@ static int vaapi_encode_truncate_gop(AVCodecContext *avctx)
 
     return 0;
 }
+
 static int vaapi_encode_mangle_end(AVCodecContext *avctx)
 {
     VAAPIEncodeContext *ctx = avctx->priv_data;
@@ -1810,7 +2101,10 @@ int ff_vaapi_encode2(AVCodecContext *avctx, AVPacket *pkt,
             pkt->dts = ctx->ts_ring[(ctx->output_order - ctx->decode_delay) %
                                     (3 * ctx->output_delay)];
         }
-
+#ifdef VPG_DRIVER
+        if (ctx->bipyramid)
+            pkt->dts -= avctx->max_b_frames;
+#endif
         *got_packet = 1;
     }
 
@@ -2417,6 +2711,8 @@ av_cold int ff_vaapi_encode_close(AVCodecContext *avctx)
 #ifdef VPG_DRIVER
     int i;
     for (i = 0 ; i < ctx->ref_nr; i++) {
+        if (!ctx->references[i])
+            continue;
         ctx->references[i]->ref_count --;
         ctx->references[i] = NULL;
     }

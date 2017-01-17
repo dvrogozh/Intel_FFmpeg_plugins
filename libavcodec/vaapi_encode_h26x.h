@@ -42,4 +42,9 @@
 int ff_vaapi_encode_h26x_nal_unit_to_byte_stream(uint8_t *dst, size_t *dst_len,
                                                  uint8_t *src, size_t src_len);
 
+#ifdef VPG_DRIVER
+int ff_vaapi_encode_h26x_nal_unit_to_no_emulation_byte_stream(uint8_t *dst, size_t *dst_len,
+                                                 uint8_t *src, size_t src_len);
+#endif
+
 #endif /* AVCODEC_VAAPI_ENCODE_H26X_H */

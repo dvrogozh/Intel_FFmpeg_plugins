@@ -66,3 +66,37 @@ fail:
     *dst_bit_len = 0;
     return AVERROR(ENOSPC);
 }
+
+#ifdef VPG_DRIVER
+int ff_vaapi_encode_h26x_nal_unit_to_no_emulation_byte_stream(uint8_t *dst, size_t *dst_bit_len,
+                                                             uint8_t *src, size_t src_bit_len)
+{
+    size_t dp, sp;
+    size_t dst_len = *dst_bit_len / 8;
+    size_t src_len = (src_bit_len + 7) / 8;
+    int trailing_zeroes = src_len * 8 - src_bit_len;
+
+    if (dst_len < src_len + 4) {
+        // Definitely doesn't fit.
+        goto fail;
+    }
+
+    // Start code.
+    dst[0] = dst[1] = dst[2] = 0;
+    dst[3] = 1;
+    dp = 4;
+
+    for (sp = 0; sp < src_len; sp++) {
+        if (dp >= dst_len)
+            goto fail;
+        dst[dp++] = src[sp];
+    }
+
+    *dst_bit_len = 8 * dp - trailing_zeroes;
+    return 0;
+
+fail:
+    *dst_bit_len = 0;
+    return AVERROR(ENOSPC);
+}
+#endif
