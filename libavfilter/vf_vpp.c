@@ -78,6 +78,13 @@ typedef struct {
     int async_depth;            // async dept used by encoder
     int max_b_frames;           // maxiumum number of b frames used by encoder
 
+    int use_crop;               // 1 = use crop; 0=none
+    int crop_w;
+    int crop_h;
+    int crop_x;
+    int crop_y;
+
+    char *cx, *cy, *cw, *ch;
     char *ow, *oh;
     int use_frc;                // use framerate conversion
     int vpp_ready;
@@ -95,10 +102,16 @@ static const AVOption vpp_options[] = {
     { "default", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_GPUCOPY_DEFAULT }, MFX_GPUCOPY_DEFAULT, MFX_GPUCOPY_OFF, .flags = FLAGS, "gpu_copy" },
     { "on", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_GPUCOPY_ON }, MFX_GPUCOPY_DEFAULT, MFX_GPUCOPY_OFF, .flags = FLAGS, "gpu_copy" },
     { "off", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_GPUCOPY_OFF }, MFX_GPUCOPY_DEFAULT, MFX_GPUCOPY_OFF, .flags = FLAGS, "gpu_copy" },
-    { "w", "Output video width", OFFSET(ow), AV_OPT_TYPE_STRING, {.str="iw"}, 0, 255, .flags = FLAGS },
-    { "width", "Output video width", OFFSET(ow), AV_OPT_TYPE_STRING, {.str="iw"}, 0, 255, .flags = FLAGS },
-    { "h", "Output video height", OFFSET(oh), AV_OPT_TYPE_STRING, {.str="w*ih/iw"}, 0, 255, .flags = FLAGS },
-    { "height", "Output video height", OFFSET(oh), AV_OPT_TYPE_STRING, {.str="w*ih/iw"}, 0, 255, .flags = FLAGS },
+
+    { "cw",   "set the width crop area expression",       OFFSET(cw), AV_OPT_TYPE_STRING, {.str = "iw"}, CHAR_MIN, CHAR_MAX, FLAGS },
+    { "ch",   "set the height crop area expression",      OFFSET(ch), AV_OPT_TYPE_STRING, {.str = "ih"}, CHAR_MIN, CHAR_MAX, FLAGS },
+    { "cx",   "set the x crop area expression",           OFFSET(cx), AV_OPT_TYPE_STRING, {.str = "(in_w-out_w)/2"}, CHAR_MIN, CHAR_MAX, FLAGS },
+    { "cy",   "set the y crop area expression",           OFFSET(cy), AV_OPT_TYPE_STRING, {.str = "(in_h-out_h)/2"}, CHAR_MIN, CHAR_MAX, FLAGS },
+
+    { "w",      "Output video width",  OFFSET(ow), AV_OPT_TYPE_STRING, {.str="cw"}, 0, 255, .flags = FLAGS },
+    { "width",  "Output video width",  OFFSET(ow), AV_OPT_TYPE_STRING, {.str="cw"}, 0, 255, .flags = FLAGS },
+    { "h",      "Output video height", OFFSET(oh), AV_OPT_TYPE_STRING, {.str="w*ch/cw"}, 0, 255, .flags = FLAGS },
+    { "height", "Output video height", OFFSET(oh), AV_OPT_TYPE_STRING, {.str="w*ch/cw"}, 0, 255, .flags = FLAGS },
     { NULL }
 };
 
@@ -109,6 +122,10 @@ static const char *const var_names[] = {
     "ih", "in_h",
     "ow", "out_w", "w",
     "oh", "out_h", "h",
+    "cw",
+    "ch",
+    "cx",
+    "cy",
     NULL
 };
 
@@ -117,6 +134,10 @@ enum var_name {
     VAR_iH, VAR_IN_H,
     VAR_oW, VAR_OUT_W, VAR_W,
     VAR_oH, VAR_OUT_H, VAR_H,
+    CW,
+    CH,
+    CX,
+    CY,
     VAR_VARS_NB
 };
 
@@ -135,16 +156,30 @@ static int eval_expr(AVFilterContext *ctx)
     VPPContext *vpp = ctx->priv;
     double  var_values[VAR_VARS_NB] = { NAN };
     AVExpr *w_expr = NULL, *h_expr = NULL;
+    AVExpr *cw_expr = NULL, *ch_expr = NULL;
+    AVExpr *cx_expr = NULL, *cy_expr = NULL;
     int     ret = 0;
+
+    PASS_EXPR(cw_expr, vpp->cw);
+    PASS_EXPR(ch_expr, vpp->ch);
 
     PASS_EXPR(w_expr, vpp->ow);
     PASS_EXPR(h_expr, vpp->oh);
+
+    PASS_EXPR(cx_expr, vpp->cx);
+    PASS_EXPR(cy_expr, vpp->cy);
 
     var_values[VAR_iW] =
     var_values[VAR_IN_W] = ctx->inputs[0]->w;
 
     var_values[VAR_iH] =
     var_values[VAR_IN_H] = ctx->inputs[0]->h;
+
+    //crop
+    CALC_EXPR(cw_expr, var_values[CW], vpp->crop_w);
+    CALC_EXPR(ch_expr, var_values[CH], vpp->crop_h);
+    //calc again in case cw is relative to ch
+    CALC_EXPR(cw_expr, var_values[CW], vpp->crop_w);
 
     CALC_EXPR(w_expr,
             var_values[VAR_OUT_W] = var_values[VAR_oW] = var_values[VAR_W],
@@ -157,8 +192,23 @@ static int eval_expr(AVFilterContext *ctx)
             var_values[VAR_OUT_W] = var_values[VAR_oW] = var_values[VAR_W],
             vpp->out_width);
 
+
+    CALC_EXPR(cx_expr, var_values[CX], vpp->crop_x);
+    CALC_EXPR(cy_expr, var_values[CY], vpp->crop_y);
+    //calc again in case cx is relative to cy
+    CALC_EXPR(cx_expr, var_values[CX], vpp->crop_x);
+
+    if((vpp->crop_w != var_values[VAR_iW]) || (vpp->crop_h != var_values[VAR_iH])) {
+        vpp->use_crop = 1;
+        av_log(NULL, AV_LOG_INFO, "Using the crop feature \n");
+     }
+
     av_expr_free(w_expr);
     av_expr_free(h_expr);
+    av_expr_free(cw_expr);
+    av_expr_free(ch_expr);
+    av_expr_free(cx_expr);
+    av_expr_free(cy_expr);
 #undef PASS_EXPR
 #undef CALC_EXPR
 
@@ -176,7 +226,7 @@ static int config_vpp_param(VPPContext *vpp)
     if ((pParam->vpp.In.FrameRateExtN * pParam->vpp.Out.FrameRateExtD) !=
         (pParam->vpp.Out.FrameRateExtN * pParam->vpp.In.FrameRateExtD)) {
         vpp->use_frc = 1;
-        av_log(vpp->ctx, AV_LOG_ERROR, "VPP: Framerate conversion enabled\n");
+        av_log(vpp->ctx, AV_LOG_INFO, "VPP: Framerate conversion enabled\n");
     }
     else
         vpp->use_frc = 0;
@@ -189,39 +239,39 @@ static int config_vpp_param(VPPContext *vpp)
      pExtParam = vpp->qsv_param.vpp_param.ExtParam;
 
     if (vpp->deinterlace) {
-	memset(&vpp->deinterlace_conf, 0, sizeof(mfxExtVPPDeinterlacing));
-	vpp->deinterlace_conf.Header.BufferId = MFX_EXTBUFF_VPP_DEINTERLACING;
-	vpp->deinterlace_conf.Header.BufferSz = sizeof(mfxExtVPPDeinterlacing);
-	vpp->deinterlace_conf.Mode = vpp->deinterlace == 1 ? MFX_DEINTERLACING_BOB : MFX_DEINTERLACING_ADVANCED;
+        memset(&vpp->deinterlace_conf, 0, sizeof(mfxExtVPPDeinterlacing));
+        vpp->deinterlace_conf.Header.BufferId = MFX_EXTBUFF_VPP_DEINTERLACING;
+        vpp->deinterlace_conf.Header.BufferSz = sizeof(mfxExtVPPDeinterlacing);
+        vpp->deinterlace_conf.Mode = vpp->deinterlace == 1 ? MFX_DEINTERLACING_BOB : MFX_DEINTERLACING_ADVANCED;
 
-	pExtParam[num_param++] = (mfxExtBuffer*)&(vpp->deinterlace_conf);
+        pExtParam[num_param++] = (mfxExtBuffer*)&(vpp->deinterlace_conf);
     }
 
     if (vpp->use_frc) {
         memset(&vpp->frc_conf, 0, sizeof(mfxExtVPPFrameRateConversion));
         vpp->frc_conf.Header.BufferId = MFX_EXTBUFF_VPP_FRAME_RATE_CONVERSION;
-	vpp->frc_conf.Header.BufferSz = sizeof(mfxExtVPPFrameRateConversion);
-	vpp->frc_conf.Algorithm = MFX_FRCALGM_DISTRIBUTED_TIMESTAMP; // make optional
+        vpp->frc_conf.Header.BufferSz = sizeof(mfxExtVPPFrameRateConversion);
+        vpp->frc_conf.Algorithm = MFX_FRCALGM_DISTRIBUTED_TIMESTAMP; // make optional
 
-	pExtParam[num_param++] = (mfxExtBuffer*)&(vpp->frc_conf);
+        pExtParam[num_param++] = (mfxExtBuffer*)&(vpp->frc_conf);
     }
 
     if (vpp->denoise) {
-	memset(&vpp->denoise_conf, 0, sizeof(mfxExtVPPDenoise));
-	vpp->denoise_conf.Header.BufferId = MFX_EXTBUFF_VPP_DENOISE;
-	vpp->denoise_conf.Header.BufferSz = sizeof(mfxExtVPPDenoise);
-	vpp->denoise_conf.DenoiseFactor   = vpp->denoise;
+        memset(&vpp->denoise_conf, 0, sizeof(mfxExtVPPDenoise));
+        vpp->denoise_conf.Header.BufferId = MFX_EXTBUFF_VPP_DENOISE;
+        vpp->denoise_conf.Header.BufferSz = sizeof(mfxExtVPPDenoise);
+        vpp->denoise_conf.DenoiseFactor   = vpp->denoise;
 
-	pExtParam[num_param++] = (mfxExtBuffer*)&(vpp->denoise_conf);
+        pExtParam[num_param++] = (mfxExtBuffer*)&(vpp->denoise_conf);
     }
 
     if (vpp->detail) {
-	memset(&vpp->detail_conf, 0, sizeof(mfxExtVPPDetail));
-	vpp->detail_conf.Header.BufferId  = MFX_EXTBUFF_VPP_DETAIL;
-	vpp->detail_conf.Header.BufferSz  = sizeof(mfxExtVPPDetail);
-	vpp->detail_conf.DetailFactor = vpp->detail;
+        memset(&vpp->detail_conf, 0, sizeof(mfxExtVPPDetail));
+        vpp->detail_conf.Header.BufferId  = MFX_EXTBUFF_VPP_DETAIL;
+        vpp->detail_conf.Header.BufferSz  = sizeof(mfxExtVPPDetail);
+        vpp->detail_conf.DetailFactor = vpp->detail;
 
-	pExtParam[num_param++] = (mfxExtBuffer*)&(vpp->detail_conf);
+        pExtParam[num_param++] = (mfxExtBuffer*)&(vpp->detail_conf);
     }
     vpp->qsv_param.vpp_param.NumExtParam = num_param;
     vpp->vpp_ready = 1;
@@ -245,11 +295,40 @@ static int config_input(AVFilterLink *inlink)
 
     ret = eval_expr(ctx);
 
+    if (vpp->use_crop) {
+        if (vpp->crop_x < 0)  vpp->crop_x = 0;
+        if (vpp->crop_y < 0)  vpp->crop_y = 0;
+
+        if(vpp->crop_w % 2)       vpp->crop_w++;
+        if(vpp->crop_h % 2)       vpp->crop_h++;
+        if(vpp->out_width % 2)    vpp->out_width++;
+        if(vpp->out_height % 2)   vpp->out_height++;
+
+        if(vpp->crop_w + vpp->crop_x > inlink->w)
+           vpp->crop_x = inlink->w - vpp->crop_w;
+        if(vpp->crop_h + vpp->crop_y > inlink->h)
+           vpp->crop_y = inlink->h - vpp->crop_h;
+
+        av_log(vpp->ctx, AV_LOG_DEBUG, "Crop paramters: x=%d y=%d w=%d h=%d \n",
+               vpp->crop_x, vpp->crop_y, vpp->crop_w, vpp->crop_h);
+    }
+
     /* Fill in->frameinfo according to inlink */
     ret = ff_qsvvpp_frameinfo_fill(&vpp->qsv_param.vpp_param.vpp.In, inlink, 0);
     if (ret != 0) {
         av_log(ctx, AV_LOG_ERROR, "Invalid input param.\n");
         return ret;
+    }
+
+    /* Fill the crop info */
+    if (vpp->use_crop) {
+        vpp->qsv_param.vpp_param.vpp.In.CropX = vpp->crop_x;
+        vpp->qsv_param.vpp_param.vpp.In.CropY = vpp->crop_y;
+        vpp->qsv_param.vpp_param.vpp.In.CropW = vpp->crop_w;
+        vpp->qsv_param.vpp_param.vpp.In.CropH = vpp->crop_h;
+
+        av_log(vpp->ctx, AV_LOG_DEBUG, "Crop parameters: x=%d y=%d w=%d h=%d \n",
+               vpp->crop_x, vpp->crop_y, vpp->crop_w,vpp->crop_h);
     }
 
     if (inlink->format == AV_PIX_FMT_QSV)
