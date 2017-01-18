@@ -66,6 +66,8 @@ enum var_name {
     VAR_VSUB,
     VAR_X,
     VAR_Y,
+    VAR_X0,
+    VAR_Y0,
     VAR_N,
     VAR_POS,
     VAR_T,
@@ -115,9 +117,11 @@ typedef struct OverlayVAAPIContext {
     FFDualInputContext dinput;
 
     int x, y;                   ///< position of overlaid picture
+    int x0, y0;
     int hsub, vsub;             ///< chroma subsampling values
     double var_values[VAR_VARS_NB];
     char *x_expr, *y_expr;
+    char *x0_expr, *y0_expr;
 
     int eof_action;             ///< action to take on EOF from source
     int eval_mode;              ///< EvalMode
@@ -126,6 +130,7 @@ typedef struct OverlayVAAPIContext {
     float luma_min;                //overlay luma key min
     float luma_max;                //overlay luma key max
     AVExpr *x_pexpr, *y_pexpr;
+    AVExpr *x0_pexpr, *y0_pexpr;
 
     VABufferID filter_buffer;
 } OverlayVAAPIContext;
@@ -145,8 +150,14 @@ static void eval_expr(AVFilterContext *ctx)
     s->var_values[VAR_Y] = av_expr_eval(s->y_pexpr, s->var_values, NULL);
     s->var_values[VAR_X] = av_expr_eval(s->x_pexpr, s->var_values, NULL);
 
+    s->var_values[VAR_X0] = av_expr_eval(s->x0_pexpr, s->var_values, NULL);
+    s->var_values[VAR_Y0] = av_expr_eval(s->y0_pexpr, s->var_values, NULL);
+
     s->x = normalize_xy(s->var_values[VAR_X], s->hsub);
     s->y = normalize_xy(s->var_values[VAR_Y], s->vsub);
+
+    s->x0 = normalize_xy(s->var_values[VAR_X0], s->hsub);
+    s->y0 = normalize_xy(s->var_values[VAR_Y0], s->vsub);
 }
 
 static int set_expr(AVExpr **pexpr, const char *expr, const char *option, void *log_ctx)
@@ -180,6 +191,10 @@ static int overlay_vaapi_process_command(AVFilterContext *ctx, const char *cmd, 
         ret = set_expr(&s->x_pexpr, args, cmd, ctx);
     else if (!strcmp(cmd, "y"))
         ret = set_expr(&s->y_pexpr, args, cmd, ctx);
+    else if      (!strcmp(cmd, "x0"))
+        ret = set_expr(&s->x0_pexpr, args, cmd, ctx);
+    else if (!strcmp(cmd, "y0"))
+        ret = set_expr(&s->y0_pexpr, args, cmd, ctx);
     else
         ret = AVERROR(ENOSYS);
 
@@ -258,8 +273,6 @@ static int overlay_vaapi_config_main(AVFilterLink *inlink)
     ctx->main_frames_ref = av_buffer_ref(inlink->hw_frames_ctx);
     ctx->main_frames = (AVHWFramesContext*)ctx->main_frames_ref->data;
 
-    ctx->output_width  =  ctx->main_frames->width;
-    ctx->output_height =  ctx->main_frames->height;
     ctx->output_format =  ctx->main_frames->sw_format;
 
     return 0;
@@ -300,6 +313,9 @@ static int overlay_vaapi_config_overlay(AVFilterLink *inlink)
     if ((ret = set_expr(&ctx->x_pexpr,      ctx->x_expr,      "x",      avctx)) < 0 ||
         (ret = set_expr(&ctx->y_pexpr,      ctx->y_expr,      "y",      avctx)) < 0)
         return ret;
+    if ((ret = set_expr(&ctx->x0_pexpr,      ctx->x0_expr,      "x0",      avctx)) < 0 ||
+        (ret = set_expr(&ctx->y0_pexpr,      ctx->y0_expr,      "y0",      avctx)) < 0)
+        return ret;
 
     if (ctx->eval_mode == EVAL_MODE_INIT) {
         eval_expr(avctx);
@@ -326,6 +342,8 @@ static int overlay_vaapi_config_output(AVFilterLink *outlink)
     AVVAAPIHWConfig *hwconfig = NULL;
     AVHWFramesConstraints *constraints = NULL;
     AVVAAPIFramesContext *va_frames;
+    AVFilterLink *main_link = outlink->src->inputs[0];
+    AVFilterLink *overlay_link = outlink->src->inputs[1];
     VAStatus vas;
     int err, i;
 
@@ -376,6 +394,12 @@ static int overlay_vaapi_config_output(AVFilterLink *outlink)
         }
     }
 
+    ctx->output_width =
+            (ctx->x0 + main_link->w) > (ctx->x + overlay_link->w) ?
+                    (ctx->x0 + main_link->w) : (ctx->x + overlay_link->w);
+    ctx->output_height =
+            (ctx->y0 + main_link->h) > (ctx->y + overlay_link->h) ?
+                    (ctx->y0 + main_link->h) : (ctx->y + overlay_link->h);
     if (ctx->output_width  < constraints->min_width  ||
         ctx->output_height < constraints->min_height ||
         ctx->output_width  > constraints->max_width  ||
@@ -496,7 +520,7 @@ static AVFrame *blend_image(AVFilterContext *avctx, AVFrame *main, AVFrame *over
     VABufferID params_id[MAX_OVERLAY_BUFFER];
     VABlendState blend_state;
     VAProcPipelineParameterBuffer filter_params;
-    VARectangle main_region, overlay_region, output_region;
+    VARectangle main_region, overlay_region, main_out_region, overlay_out_region, out_region;
     VAStatus vas;
     int err;
 
@@ -549,22 +573,34 @@ static AVFrame *blend_image(AVFilterContext *avctx, AVFrame *main, AVFrame *over
         .width  = overlay->width,
         .height = overlay->height,
     };
-    output_region = (VARectangle) {
+    main_out_region = (VARectangle) {
+        .x      = ctx->x0,
+        .y      = ctx->y0,
+        .width  = main->width,
+        .height = main->height,
+    };
+    overlay_out_region = (VARectangle) {
         .x      = ctx->x,
         .y      = ctx->y,
         .width  = overlay->width,
         .height = overlay->height,
     };
+    out_region = (VARectangle) {
+        .x      = 0,
+        .y      = 0,
+        .width  = ctx->output_width,
+        .height = ctx->output_height,
+    };
 
-    blend_state.flags = VA_BLEND_LUMA_KEY/*|VA_BLEND_GLOBAL_ALPHA*/;//
+    blend_state.flags = VA_BLEND_LUMA_KEY | VA_BLEND_GLOBAL_ALPHA;
     blend_state.global_alpha = ctx->alpha;
     blend_state.min_luma = ctx->luma_min;
     blend_state.max_luma = ctx->luma_max;
 
     //configure each output picuture's param
     memset(&filter_params, 0, sizeof(filter_params));
-    filter_params.output_region = &main_region;
-    filter_params.surface_region = &main_region;
+    filter_params.output_region = &out_region;
+    filter_params.surface_region = &out_region;
     filter_params.surface = output_surface;
     filter_params.surface_color_standard =
                 vaapi_proc_colour_standard(main->colorspace);
@@ -602,7 +638,7 @@ static AVFrame *blend_image(AVFilterContext *avctx, AVFrame *main, AVFrame *over
         params[i].surface_region = (i == MAIN_OVERLAY ? &main_region : &overlay_region);
         params[i].surface_color_standard = VAProcColorStandardBT601;
 
-        params[i].output_region = (i == MAIN_OVERLAY ? &main_region : &output_region);
+        params[i].output_region = (i == MAIN_OVERLAY ? &main_out_region : &overlay_out_region);
         params[i].output_background_color = 0xff000000;
         params[i].output_color_standard = VAProcColorStandardBT601;
 
@@ -686,7 +722,6 @@ fail:
     if (ctx->filter_buffer != VA_INVALID_ID)
         vaDestroyBuffer(ctx->hwctx->display, &ctx->filter_buffer);
     av_frame_free(&main);
-    av_frame_free(&overlay);
     av_frame_free(&output_frame);
     return NULL;
 }
@@ -719,8 +754,7 @@ static AVFrame *do_blend(AVFilterContext *ctx, AVFrame *mainpic,
                s->var_values[VAR_Y], s->y);
     }
 
-    if (s->x < mainpic->width  && s->x + second->width  >= 0 ||
-        s->y < mainpic->height && s->y + second->height >= 0) {
+    {
         output = blend_image(ctx, mainpic, second, s->x, s->y);
     }
     return output;
@@ -774,6 +808,8 @@ static av_cold void overlay_vaapi_uninit(AVFilterContext *avctx)
     ff_dualinput_uninit(&ctx->dinput);
     av_expr_free(ctx->x_pexpr); ctx->x_pexpr = NULL;
     av_expr_free(ctx->y_pexpr); ctx->y_pexpr = NULL;
+    av_expr_free(ctx->x0_pexpr); ctx->x0_pexpr = NULL;
+    av_expr_free(ctx->y0_pexpr); ctx->y0_pexpr = NULL;
 }
 
 
@@ -782,6 +818,8 @@ static av_cold void overlay_vaapi_uninit(AVFilterContext *avctx)
 static const AVOption overlay_vaapi_options[] = {
     { "x", "set the x expression", OFFSET(x_expr), AV_OPT_TYPE_STRING, {.str = "0"}, CHAR_MIN, CHAR_MAX, FLAGS },
     { "y", "set the y expression", OFFSET(y_expr), AV_OPT_TYPE_STRING, {.str = "0"}, CHAR_MIN, CHAR_MAX, FLAGS },
+    { "x0", "set the main video x expression", OFFSET(x0_expr), AV_OPT_TYPE_STRING, {.str = "0"}, CHAR_MIN, CHAR_MAX, FLAGS },
+    { "y0", "set the main video y expression", OFFSET(y0_expr), AV_OPT_TYPE_STRING, {.str = "0"}, CHAR_MIN, CHAR_MAX, FLAGS },
     { "eof_action", "Action to take when encountering EOF from secondary input ",
         OFFSET(eof_action), AV_OPT_TYPE_INT, { .i64 = EOF_ACTION_REPEAT },
         EOF_ACTION_REPEAT, EOF_ACTION_PASS, .flags = FLAGS, "eof_action" },
