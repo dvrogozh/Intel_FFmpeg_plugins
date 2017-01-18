@@ -61,6 +61,7 @@ typedef struct {
     mfxExtVPPFrameRateConversion frc_conf;
     mfxExtVPPDenoise denoise_conf;
     mfxExtVPPDetail detail_conf;
+    mfxExtVPPProcAmp procamp_conf;
 
     int out_width;
     int out_height;
@@ -84,6 +85,13 @@ typedef struct {
     int crop_x;
     int crop_y;
 
+    /* param for the procamp */
+    int    procamp;            //enable the procamp
+    float  hue;
+    float  saturation;
+    float  contrast;
+    float  brightness;
+
     char *cx, *cy, *cw, *ch;
     char *ow, *oh;
     int use_frc;                // use framerate conversion
@@ -102,6 +110,12 @@ static const AVOption vpp_options[] = {
     { "default", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_GPUCOPY_DEFAULT }, MFX_GPUCOPY_DEFAULT, MFX_GPUCOPY_OFF, .flags = FLAGS, "gpu_copy" },
     { "on", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_GPUCOPY_ON }, MFX_GPUCOPY_DEFAULT, MFX_GPUCOPY_OFF, .flags = FLAGS, "gpu_copy" },
     { "off", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_GPUCOPY_OFF }, MFX_GPUCOPY_DEFAULT, MFX_GPUCOPY_OFF, .flags = FLAGS, "gpu_copy" },
+
+    { "procamp",     "Enable ProcAmp",                                         OFFSET(procamp),    AV_OPT_TYPE_INT,   {.i64 = 0}, 0, 1, .flags = FLAGS},
+    { "hue",         "ProcAmp hue",                                            OFFSET(hue),        AV_OPT_TYPE_FLOAT, {.dbl = 0.0 }, -180.0, 180.0, .flags = FLAGS},
+    { "saturation",  "ProcAmp saturation",                                     OFFSET(saturation), AV_OPT_TYPE_FLOAT, {.dbl = 1.0 }, 0.0, 10.0, .flags = FLAGS},
+    { "contrast",    "ProcAmp contrast",                                       OFFSET(contrast),   AV_OPT_TYPE_FLOAT, {.dbl = 1.0 }, 0.0, 10.0, .flags = FLAGS},
+    { "brightness",  "ProcAmp brightness",                                     OFFSET(brightness), AV_OPT_TYPE_FLOAT, {.dbl = 0.0 }, -100.0, 100.0, .flags = FLAGS},
 
     { "cw",   "set the width crop area expression",       OFFSET(cw), AV_OPT_TYPE_STRING, {.str = "iw"}, CHAR_MIN, CHAR_MAX, FLAGS },
     { "ch",   "set the height crop area expression",      OFFSET(ch), AV_OPT_TYPE_STRING, {.str = "ih"}, CHAR_MIN, CHAR_MAX, FLAGS },
@@ -272,6 +286,18 @@ static int config_vpp_param(VPPContext *vpp)
         vpp->detail_conf.DetailFactor = vpp->detail;
 
         pExtParam[num_param++] = (mfxExtBuffer*)&(vpp->detail_conf);
+    }
+
+    if (vpp->procamp) {
+        memset(&vpp->procamp_conf, 0, sizeof(mfxExtVPPProcAmp));
+        vpp->procamp_conf.Header.BufferId  = MFX_EXTBUFF_VPP_PROCAMP;
+        vpp->procamp_conf.Header.BufferSz  = sizeof(mfxExtVPPProcAmp);
+        vpp->procamp_conf.Hue              = vpp->hue;
+        vpp->procamp_conf.Saturation       = vpp->saturation;
+        vpp->procamp_conf.Contrast         = vpp->contrast;
+        vpp->procamp_conf.Brightness       = vpp->brightness;
+
+        pExtParam[num_param++] = (mfxExtBuffer*)&(vpp->procamp_conf);
     }
     vpp->qsv_param.vpp_param.NumExtParam = num_param;
     vpp->vpp_ready = 1;
