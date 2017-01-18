@@ -53,6 +53,8 @@ struct FFQSVVPPContext {
     int               nb_mem_ids_out;
     QSVFrame          *in_frame_list;
     QSVFrame          *out_frame_list;
+    mfxFrameInfo       in_info;
+    mfxFrameInfo       out_info;
 };
 
 /* functions for frameAlloc */
@@ -230,7 +232,12 @@ static QSVFrame *submit_frame(FFQSVVPPContext *s, AVFilterLink *inlink, AVFrame 
         }
         qsv_frame->surface = &qsv_frame->surface_internal;
     }
-    ff_qsvvpp_frameinfo_fill(&qsv_frame->surface->Info, inlink, 0);
+
+    if (FF_INLINK_IDX(inlink) == 0)
+        qsv_frame->surface->Info = s->in_info;
+    else
+        ff_qsvvpp_frameinfo_fill(&qsv_frame->surface->Info, inlink, 0);
+
     qsv_frame->surface->Data.TimeStamp = av_rescale_q(qsv_frame->frame->pts,
             inlink->time_base, default_tb);
 
@@ -285,7 +292,7 @@ static QSVFrame *query_frame(FFQSVVPPContext *s, AVFilterLink *outlink)
             return NULL;
         out_frame->surface = &out_frame->surface_internal;
     }
-    ff_qsvvpp_frameinfo_fill(&out_frame->surface->Info, outlink, 1);
+    out_frame->surface->Info = s->out_info;
 
     return out_frame;
 }
@@ -341,8 +348,8 @@ static int init_vpp_session(AVFilterContext *avctx, FFQSVVPPContext *s)
     out_frames_hwctx = out_frames_ctx->hwctx;
 
     out_frames_ctx->format            = AV_PIX_FMT_QSV;
-    out_frames_ctx->width             = outlink->w;
-    out_frames_ctx->height            = outlink->h;
+    out_frames_ctx->width             = s->out_info.CropW;
+    out_frames_ctx->height            = s->out_info.CropH;
     out_frames_ctx->sw_format         = out_format;
     out_frames_ctx->initial_pool_size = 64;
 
@@ -486,6 +493,8 @@ int ff_qsvvpp_create(AVFilterContext *avctx, FFQSVVPPContext **vpp, FFQSVVPPPara
     s->cb            = param->cb;
     s->in_video_mem  = !!(param->vpp_param.IOPattern & MFX_IOPATTERN_IN_VIDEO_MEMORY);
     s->out_video_mem = !!(param->vpp_param.IOPattern & MFX_IOPATTERN_OUT_VIDEO_MEMORY);
+    s->in_info       = param->vpp_param.vpp.In;
+    s->out_info      = param->vpp_param.vpp.Out;
 
     /* create the vpp session */
     ret = init_vpp_session(avctx, s);
