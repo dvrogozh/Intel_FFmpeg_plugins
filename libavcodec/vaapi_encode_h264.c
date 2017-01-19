@@ -833,7 +833,7 @@ static int vaapi_encode_h264_write_extra_header(AVCodecContext *avctx,
     char tmp[256];
     size_t header_len;
 
-    if (index == 0 && ctx->va_rc_mode == VA_RC_CBR) {
+    if (index == 0 && ctx->va_rc_mode != VA_RC_CQP) {
         *type = VAEncPackedHeaderH264_SEI;
 
         init_put_bits(&pbc, tmp, sizeof(tmp));
