@@ -391,6 +391,15 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
         q->param.mfx.FrameInfo.BitDepthChroma = 8;
     }
 
+    if (AV_CODEC_ID_MPEG2VIDEO == avctx->codec_id) {
+        if((avctx->sample_aspect_ratio.num == 0) &&
+           (avctx->sample_aspect_ratio.den == 1)) {
+           //The inital SAR value can't pass the MSDK check
+           av_log(avctx, AV_LOG_INFO, " Adjust the inital value of SAR \n");
+           q->param.mfx.FrameInfo.AspectRatioW = 1;
+        }
+    }
+
     if (avctx->flags & AV_CODEC_FLAG_INTERLACED_DCT) {
         q->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_FIELD_TFF;
         q->height_align = 32;
