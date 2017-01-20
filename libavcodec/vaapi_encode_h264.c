@@ -181,6 +181,10 @@ typedef struct VAAPIEncodeH264Context {
         VAEncMiscParameterBuffer misc;
         VAEncMiscParameterRIR rir;
     } rir_params;
+    struct {
+        VAEncMiscParameterBuffer misc;
+        VAEncMiscParameterBufferMaxFrameSize maxframesize;
+    } maxframesize_params;
 #endif
 } VAAPIEncodeH264Context;
 
@@ -198,6 +202,7 @@ typedef struct VAAPIEncodeH264Options {
     int int_ref_cycle_size;
     int int_ref_qp_delta;
     int insert_aud;
+    int64_t max_frame_size;
 } VAAPIEncodeH264Options;
 
 
@@ -1458,6 +1463,19 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
         ctx->global_params_size[ctx->nb_global_params++] =
             sizeof(priv->rir_params);
     }
+    if (opt->max_frame_size > 0) {
+        priv->maxframesize_params.maxframesize.max_frame_size = opt->max_frame_size;
+        priv->maxframesize_params.misc.type = VAEncMiscParameterTypeMaxFrameSize;
+        ctx->global_params[ctx->nb_global_params] =
+            &priv->maxframesize_params.misc;
+        ctx->global_params_size[ctx->nb_global_params++] =
+            sizeof(priv->maxframesize_params);
+        // max_frame_size need set qp = 0 and encoder chooses the best QP according to rate control
+        avctx->qmax = 0;
+        avctx->qmin = 0;
+        avctx->b_quant_offset = 0;
+        avctx->i_quant_offset = 0;
+    }
 #endif
     ctx->i_per_idr = opt->idr_interval;
     return 0;
@@ -1623,6 +1641,8 @@ static const AVOption vaapi_encode_h264_options[] = {
       OFFSET(int_ref_cycle_size), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, UINT16_MAX, FLAGS },
     { "int_ref_qp_delta", "QP difference for the refresh MBs",
       OFFSET(int_ref_qp_delta), AV_OPT_TYPE_INT, { .i64 = 0 }, -51, 51, FLAGS },
+    { "max_frame_size", "max frame size setting in bit",
+      OFFSET(max_frame_size), AV_OPT_TYPE_INT64, { .i64 = 0 }, 0, INT64_MAX, FLAGS },
 #else
     { "quality", "Set encode quality (trades off against speed, higher is faster)",
       OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 8, FLAGS },

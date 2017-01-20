@@ -220,9 +220,16 @@ static int vaapi_encode_one_field(AVCodecContext *avctx,
                 ctx->rc_params.rc.initial_qp = (int)(avctx->qmax * avctx->b_quant_factor + avctx->b_quant_offset + 0.5);
                 ctx->rc_params.rc.max_qp = (int)(avctx->qmax * avctx->b_quant_factor + avctx->b_quant_offset + 0.5);
             }
-            ctx->rc_params.rc.min_qp = ctx->rc_params.rc.min_qp >= 0 ?  ctx->rc_params.rc.min_qp : 18 ;
-            ctx->rc_params.rc.initial_qp = ctx->rc_params.rc.initial_qp >= 0 ? ctx->rc_params.rc.initial_qp : 40;
-            ctx->rc_params.rc.max_qp = ctx->rc_params.rc.max_qp >= 0 ? ctx->rc_params.rc.max_qp : 40;
+            // if qp is out of [0,51], set to 0 to let encoder choose the best QP according to rate control
+            if (ctx->rc_params.rc.initial_qp < 0 || ctx->rc_params.rc.initial_qp > 51)
+                ctx->rc_params.rc.initial_qp = 0;
+
+            if (ctx->rc_params.rc.max_qp < 0 || ctx->rc_params.rc.max_qp > 51)
+                ctx->rc_params.rc.max_qp = 0;
+
+            if (ctx->rc_params.rc.min_qp > 51 || ctx->rc_params.rc.min_qp < 0
+                || (ctx->rc_params.rc.max_qp && ctx->rc_params.rc.max_qp < ctx->rc_params.rc.min_qp))
+                ctx->rc_params.rc.min_qp = 0;
         }
         err = vaapi_encode_make_param_buffer(avctx, pic,
                                             VAEncMiscParameterBufferType,
@@ -670,9 +677,16 @@ static int vaapi_encode_issue(AVCodecContext *avctx,
                 ctx->rc_params.rc.initial_qp = (int)(avctx->qmax * avctx->b_quant_factor + avctx->b_quant_offset + 0.5);
                 ctx->rc_params.rc.max_qp = (int)(avctx->qmax * avctx->b_quant_factor + avctx->b_quant_offset + 0.5);
             }
-            ctx->rc_params.rc.min_qp = ctx->rc_params.rc.min_qp >= 0 ?  ctx->rc_params.rc.min_qp : 18 ;
-            ctx->rc_params.rc.initial_qp = ctx->rc_params.rc.initial_qp >= 0 ? ctx->rc_params.rc.initial_qp : 40;
-            ctx->rc_params.rc.max_qp = ctx->rc_params.rc.max_qp >= 0 ? ctx->rc_params.rc.max_qp : 40;
+            // if qp is out of [0,51], set to 0 to let encoder choose the best QP according to rate control
+            if (ctx->rc_params.rc.initial_qp < 0 || ctx->rc_params.rc.initial_qp > 51)
+                ctx->rc_params.rc.initial_qp = 0;
+
+            if (ctx->rc_params.rc.max_qp < 0 || ctx->rc_params.rc.max_qp > 51)
+                ctx->rc_params.rc.max_qp = 0;
+
+            if (ctx->rc_params.rc.min_qp > 51 || ctx->rc_params.rc.min_qp < 0
+                || (ctx->rc_params.rc.max_qp && ctx->rc_params.rc.max_qp < ctx->rc_params.rc.min_qp))
+                ctx->rc_params.rc.min_qp = 0;
         }
         err = vaapi_encode_make_param_buffer(avctx, pic,
                                             VAEncMiscParameterBufferType,
@@ -972,6 +986,7 @@ static int vaapi_encode_output(AVCodecContext *avctx,
                 goto fail_mapped;
 
             memcpy(pkt->data + len, buf->buf, buf->size);
+            len += buf->size;
         }
 
         vas = vaUnmapBuffer(ctx->hwctx->display, pic->output_buffer);

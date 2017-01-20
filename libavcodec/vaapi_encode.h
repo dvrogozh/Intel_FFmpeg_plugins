@@ -34,7 +34,7 @@ struct VAAPIEncodePicture;
 enum {
     MAX_CONFIG_ATTRIBUTES  = 4,
 #ifdef VPG_DRIVER
-    MAX_GLOBAL_PARAMS      = 5,
+    MAX_GLOBAL_PARAMS      = 6,
     MAX_PICTURE_REFERENCES = 5,
 #else
     MAX_GLOBAL_PARAMS      = 4,
