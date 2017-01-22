@@ -1287,11 +1287,13 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
         } else {
             pic->type = PICTURE_TYPE_I;
             ++ctx->i_counter;
+#ifdef VPG_DRIVER
             for (i = 0 ; i < ctx->ref_nr; i++) {
                 pic->refs[i] = ctx->references[i];
                 pic->refs[i]->ref_count++;
             }
             pic->nb_refs = ctx->ref_nr;
+#endif
         }
         ctx->force_idr_frame = 0;
         ctx->p_counter = 0;
