@@ -1172,8 +1172,8 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
     pic->slice_mod_mbs = (priv->mb_width * priv->mb_height) % pic->nb_slices;
 #ifdef VPG_DRIVER
     if (avctx->field_order != AV_FIELD_PROGRESSIVE && avctx->field_order != AV_FIELD_UNKNOWN) {
-        pic->slice_of_mbs = (priv->mb_width * (priv->mb_height + 1) / 2) / pic->nb_slices;
-        pic->slice_mod_mbs = (priv->mb_width * (priv->mb_height + 1) / 2) % pic->nb_slices;
+        pic->slice_of_mbs = (priv->mb_width * ((priv->mb_height + 1) >> 1)) / pic->nb_slices;
+        pic->slice_mod_mbs = (priv->mb_width * ((priv->mb_height + 1) >> 1)) % pic->nb_slices;
     }
 #endif
     pic->last_mb_index = 0;
@@ -1311,7 +1311,7 @@ static int vaapi_encode_h264_init_slice_params(AVCodecContext *avctx,
 #ifdef VPG_DRIVER
     if (avctx->field_order != AV_FIELD_PROGRESSIVE && avctx->field_order != AV_FIELD_UNKNOWN) {
         mslice->field_pic_flag = 1;
-        mbnum = priv->mb_width * (priv->mb_height + 1) / 2;
+        mbnum = priv->mb_width * ((priv->mb_height + 1) >> 1);
     }
 #endif
 
