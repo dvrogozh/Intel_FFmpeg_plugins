@@ -791,7 +791,7 @@ static int vaapi_encode_h265_init_sequence_params(AVCodecContext *avctx)
     VAAPIEncodeH265MiscSequenceParams *mseq = &priv->misc_sequence_params;
     VAAPIEncodeH265Options *opt =
         (VAAPIEncodeH265Options*)ctx->codec_options_data;
-    int i;
+    int i, num, max_delta_poc;
 
     {
         // general_profile_space == 0.
@@ -907,7 +907,15 @@ static int vaapi_encode_h265_init_sequence_params(AVCodecContext *avctx)
         mseq->general_frame_only_constraint_flag = 1;
         mseq->general_inbld_flag = 0;
 
-        mseq->log2_max_pic_order_cnt_lsb_minus4 = 8;
+        i = 1;
+        num = 0;
+        max_delta_poc = 2 + avctx->max_b_frames;
+        while (i < max_delta_poc * 2) {
+            i <<= 1;
+            num ++;
+        }
+
+        mseq->log2_max_pic_order_cnt_lsb_minus4 = num  > 4 ? num - 4 : 0;
         mseq->vps_sub_layer_ordering_info_present_flag = 0;
 #ifdef VPG_DRIVER
         mseq->vps_max_dec_pic_buffering_minus1[0] = ctx->max_ref_nr;

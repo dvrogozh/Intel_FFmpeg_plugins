@@ -864,7 +864,7 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
     VAAPIEncodeH264Options *opt =
         (VAAPIEncodeH264Options*)ctx->codec_options_data;
 
-    int i;
+    int i, max_delta_poc, num;
 
     {
         vseq->seq_parameter_set_id = 0;
@@ -893,6 +893,15 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
         vseq->seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4 =
             av_clip(av_log2(avctx->max_b_frames + 1) - 2, 0, 12);
 
+        //MaxPicOrderCntLsb should greater than max_delta_poc * 2, or else poc will be negative
+        i = 1;
+        num = 0;
+        max_delta_poc = (2 + avctx->max_b_frames) * 2;
+        while (i < max_delta_poc * 2) {
+            i <<= 1;
+            num ++;
+        }
+        vseq->seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4 = num > 4 ? num - 4 : 0;
         if (avctx->width  != ctx->surface_width ||
             avctx->height != ctx->surface_height) {
             vseq->frame_cropping_flag = 1;
