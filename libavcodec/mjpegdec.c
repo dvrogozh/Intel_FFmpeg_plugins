@@ -56,7 +56,6 @@ static int build_vlc(VLC *vlc, const uint8_t *bits_table,
     uint16_t huff_code[256];
     uint16_t huff_sym[256];
     int i;
-
     av_assert0(nb_codes <= 256);
 
     ff_mjpeg_build_huffman_codes(huff_size, huff_code, bits_table, val_table);
@@ -73,6 +72,7 @@ static int build_vlc(VLC *vlc, const uint8_t *bits_table,
 
 static void build_basic_mjpeg_vlc(MJpegDecodeContext *s)
 {
+    int i;
     build_vlc(&s->vlcs[0][0], avpriv_mjpeg_bits_dc_luminance,
               avpriv_mjpeg_val_dc, 12, 0, 0);
     build_vlc(&s->vlcs[0][1], avpriv_mjpeg_bits_dc_chrominance,
@@ -85,6 +85,21 @@ static void build_basic_mjpeg_vlc(MJpegDecodeContext *s)
               avpriv_mjpeg_val_ac_luminance, 251, 0, 0);
     build_vlc(&s->vlcs[2][1], avpriv_mjpeg_bits_ac_chrominance,
               avpriv_mjpeg_val_ac_chrominance, 251, 0, 0);
+    for (i = 0 ; i < 4 ; i++) {
+        s->htdc_valid[i] = 1;
+        s->htac_valid[i] = 1;
+        if (i == 0) {
+            memcpy (s->htdc_bits[i], avpriv_mjpeg_bits_dc_luminance + 1, 16);
+            memcpy (s->htac_bits[i], avpriv_mjpeg_bits_ac_luminance + 1, 16);
+            memcpy (s->htdc_value[i], avpriv_mjpeg_val_dc, 12);
+            memcpy (s->htac_value[i], avpriv_mjpeg_val_ac_luminance, 251);
+        } else {
+            memcpy (s->htdc_bits[i], avpriv_mjpeg_bits_dc_chrominance + 1, 16);
+            memcpy (s->htac_bits[i], avpriv_mjpeg_bits_ac_chrominance + 1, 16);
+            memcpy (s->htdc_value[i], avpriv_mjpeg_val_dc, 12);
+            memcpy (s->htac_value[i], avpriv_mjpeg_val_ac_chrominance, 251);
+        }
+    }
 }
 
 static void parse_avid(MJpegDecodeContext *s, uint8_t *buf, int len)
@@ -158,7 +173,7 @@ av_cold int ff_mjpeg_decode_init(AVCodecContext *avctx)
 
     if (avctx->codec->id == AV_CODEC_ID_AMV)
         s->flipped = 1;
-
+    s->pix_fmt = AV_PIX_FMT_NONE;
     return 0;
 }
 
@@ -184,6 +199,7 @@ int ff_mjpeg_decode_dqt(MJpegDecodeContext *s)
         index = get_bits(&s->gb, 4);
         if (index >= 4)
             return -1;
+        s->q_tables_valid[index] = 1;
         av_log(s->avctx, AV_LOG_DEBUG, "index=%d\n", index);
         /* read quant table */
         for (i = 0; i < 64; i++) {
@@ -245,6 +261,15 @@ int ff_mjpeg_decode_dht(MJpegDecodeContext *s)
             val_table[i] = v;
         }
         len -= n;
+        if (class) {
+            memcpy (s->htac_bits[index], &bits_table[1], 16);
+            memcpy (s->htac_value[index], val_table, 256);
+            s->htac_valid[index] = 1;
+        } else {
+            memcpy (s->htdc_bits[index], &bits_table[1], 16);
+            memcpy (s->htdc_value[index], val_table, 256);
+            s->htdc_valid[index] = 1;
+        }
 
         /* build VLC and flush previous vlc if present */
         ff_free_vlc(&s->vlcs[class][index]);
@@ -616,6 +641,19 @@ unk_pixfmt:
         av_log(s->avctx, AV_LOG_ERROR, "Could not get a pixel format descriptor.\n");
         return AVERROR_BUG;
     }
+
+    if (s->pix_fmt == AV_PIX_FMT_NONE) {
+        enum AVPixelFormat pix_fmts[] = {
+            AV_PIX_FMT_VAAPI,
+            s->avctx->pix_fmt,
+            AV_PIX_FMT_NONE,
+         };
+         s->avctx->pix_fmt = s->pix_fmt = ff_get_format(s->avctx, pix_fmts);
+         if (s->pix_fmt < 0)
+             return AVERROR(EINVAL);
+    }
+    if (s->pix_fmt != s->avctx->pix_fmt)
+        s->avctx->pix_fmt = s->pix_fmt;
 
     if (s->avctx->skip_frame == AVDISCARD_ALL) {
         s->picture_ptr->pict_type = AV_PICTURE_TYPE_I;
@@ -1479,7 +1517,8 @@ int ff_mjpeg_decode_sos(MJpegDecodeContext *s, const uint8_t *mb_bitmask,
         return -1;
     }
 
-    av_assert0(s->picture_ptr->data[0]);
+    //av_assert0(s->picture_ptr->data[0]);
+
     /* XXX: verify len field validity */
     len = get_bits(&s->gb, 16);
     nb_components = get_bits(&s->gb, 8);
@@ -1528,8 +1567,10 @@ int ff_mjpeg_decode_sos(MJpegDecodeContext *s, const uint8_t *mb_bitmask,
         if (s->dc_index[i] <  0 || s->ac_index[i] < 0 ||
             s->dc_index[i] >= 4 || s->ac_index[i] >= 4)
             goto out_of_range;
+
         if (!s->vlcs[0][s->dc_index[i]].table || !(s->progressive ? s->vlcs[2][s->ac_index[0]].table : s->vlcs[1][s->ac_index[i]].table))
             goto out_of_range;
+
     }
 
     predictor = get_bits(&s->gb, 8);       /* JPEG Ss / lossless JPEG predictor /JPEG-LS NEAR */
@@ -1565,6 +1606,9 @@ int ff_mjpeg_decode_sos(MJpegDecodeContext *s, const uint8_t *mb_bitmask,
     for (i = s->mjpb_skiptosod; i > 0; i--)
         skip_bits(&s->gb, 8);
 
+    if (s->avctx->hwaccel) {
+        return 0;
+    }
 next_field:
     for (i = 0; i < nb_components; i++)
         s->last_dc[i] = (4 << s->bits);
@@ -2088,6 +2132,7 @@ int ff_mjpeg_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
 
     buf_ptr = buf;
     buf_end = buf + buf_size;
+
     while (buf_ptr < buf_end) {
         /* find start next marker */
         start_code = ff_mjpeg_find_marker(s, &buf_ptr, buf_end,
@@ -2102,6 +2147,7 @@ int ff_mjpeg_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
                    start_code, unescaped_buf_size, buf_size);
             return AVERROR_INVALIDDATA;
         }
+
         av_log(avctx, AV_LOG_DEBUG, "marker=%x avail_size_in_buf=%"PTRDIFF_SPECIFIER"\n",
                start_code, buf_end - buf_ptr);
 
@@ -2251,10 +2297,21 @@ eoi_parser:
                 skip_bits(&s->gb, get_bits_left(&s->gb));
                 break;
             }
-
+            if (s->cur_scan == 1 && avctx->hwaccel) {
+                ret = avctx->hwaccel->start_frame(avctx, NULL, NULL);
+                if (ret < 0)
+                    av_log(avctx, AV_LOG_ERROR, "start frame fail\n");
+            }
             if ((ret = ff_mjpeg_decode_sos(s, NULL, 0, NULL)) < 0 &&
                 (avctx->err_recognition & AV_EF_EXPLODE))
                 goto fail;
+
+            if (avctx->hwaccel) {
+                uint8_t *buf_start = buf_ptr + get_bits_count(&s->gb)/ 8;
+                ret = avctx->hwaccel->decode_slice(avctx, buf_start, buf_end - buf_start);
+                if (ret < 0)
+                    av_log(NULL, AV_LOG_ERROR, "decode_slice error");
+            }
             break;
         case DRI:
             mjpeg_decode_dri(s);
@@ -2472,10 +2529,14 @@ the_end:
         }
         av_freep(&s->stereo3d);
     }
-
     av_dict_copy(avpriv_frame_get_metadatap(data), s->exif_metadata, 0);
     av_dict_free(&s->exif_metadata);
 
+    if (avctx->hwaccel) {
+        ret = avctx->hwaccel->end_frame(avctx);
+        if (ret < 0)
+            av_log(NULL, AV_LOG_ERROR, "end_frame error");
+    }
 the_end_no_picture:
     av_log(avctx, AV_LOG_DEBUG, "decode frame unused %"PTRDIFF_SPECIFIER" bytes\n",
            buf_end - buf_ptr);

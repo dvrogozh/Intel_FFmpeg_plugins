@@ -60,7 +60,7 @@ int ff_vaapi_context_init(AVCodecContext *avctx)
     vactx->iq_matrix_buf_id     = VA_INVALID_ID;
     vactx->bitplane_buf_id      = VA_INVALID_ID;
     vactx->prob_buf_id          = VA_INVALID_ID;
-
+    vactx->huf_buf_id           = VA_INVALID_ID;
     return 0;
 }
 
@@ -71,7 +71,7 @@ int ff_vaapi_context_fini(AVCodecContext *avctx)
 
 int ff_vaapi_render_picture(FFVAContext *vactx, VASurfaceID surface)
 {
-    VABufferID va_buffers[4];
+    VABufferID va_buffers[5];
     unsigned int n_va_buffers = 0;
 
     if (vactx->pic_param_buf_id == VA_INVALID_ID)
@@ -93,6 +93,11 @@ int ff_vaapi_render_picture(FFVAContext *vactx, VASurfaceID surface)
     if (vactx->prob_buf_id != VA_INVALID_ID) {
         vaUnmapBuffer(vactx->display, vactx->prob_buf_id);
         va_buffers[n_va_buffers++] = vactx->prob_buf_id;
+    }
+
+    if (vactx->huf_buf_id != VA_INVALID_ID) {
+        vaUnmapBuffer(vactx->display, vactx->huf_buf_id);
+        va_buffers[n_va_buffers++] = vactx->huf_buf_id;
     }
 
     if (vaBeginPicture(vactx->display, vactx->context_id,
@@ -186,6 +191,11 @@ uint8_t *ff_vaapi_alloc_prob_buffer(FFVAContext *vactx, uint32_t size)
     return alloc_buffer(vactx, VAProbabilityBufferType, size, &vactx->prob_buf_id);
 }
 
+uint8_t *ff_vaapi_alloc_huf_buffer(FFVAContext *vactx, uint32_t size)
+{
+    return alloc_buffer(vactx, VAHuffmanTableBufferType, size, &vactx->huf_buf_id);
+}
+
 VASliceParameterBufferBase *ff_vaapi_alloc_slice(FFVAContext *vactx, const uint8_t *buffer, uint32_t size)
 {
     uint8_t *slice_params;
@@ -224,6 +234,7 @@ void ff_vaapi_common_end_frame(AVCodecContext *avctx)
     destroy_buffers(vactx->display, &vactx->iq_matrix_buf_id, 1);
     destroy_buffers(vactx->display, &vactx->bitplane_buf_id, 1);
     destroy_buffers(vactx->display, &vactx->prob_buf_id, 1);
+    destroy_buffers(vactx->display, &vactx->huf_buf_id, 1);
     destroy_buffers(vactx->display, vactx->slice_buf_ids, vactx->n_slice_buf_ids);
     av_freep(&vactx->slice_buf_ids);
     av_freep(&vactx->slice_params);

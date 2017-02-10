@@ -43,6 +43,7 @@ typedef struct {
     VABufferID iq_matrix_buf_id;        ///< Inverse quantiser matrix buffer
     VABufferID bitplane_buf_id;         ///< Bitplane buffer (for VC-1 decoding)
     VABufferID prob_buf_id;             ///< Prob buffer (for VP-8 decoding)
+    VABufferID huf_buf_id;              ///> Huffman table (for mjpeg decoding)
     VABufferID *slice_buf_ids;          ///< Slice parameter/data buffers
     unsigned int n_slice_buf_ids;       ///< Number of effective slice buffers
     unsigned int slice_buf_ids_alloc;   ///< Number of allocated slice buffers
@@ -86,6 +87,9 @@ uint8_t *ff_vaapi_alloc_bitplane(FFVAContext *vactx, uint32_t size);
 
 /** Allocate a new prob buffer */
 uint8_t *ff_vaapi_alloc_prob_buffer(FFVAContext *vactx, uint32_t size);
+
+/** Allocate a new huffman buffer */
+uint8_t *ff_vaapi_alloc_huf_buffer(FFVAContext *vactx, uint32_t size);
 /**
  * Allocate a new slice descriptor for the input slice.
  *

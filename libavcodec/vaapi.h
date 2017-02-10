@@ -116,6 +116,15 @@ struct attribute_deprecated vaapi_context {
     uint32_t prob_buf_id;
 
     /**
+     * VAHuffmanTableBuffer ID (for MJPEG decoding)
+     *
+     * - encoding: unused
+     * - decoding: Set by libavcodec
+     */
+    attribute_deprecated
+    uint32_t huf_buf_id;
+
+    /**
      * Slice parameter/data buffer IDs
      *
      * - encoding: unused

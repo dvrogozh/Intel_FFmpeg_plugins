@@ -83,6 +83,7 @@ static void register_all(void)
     REGISTER_HWACCEL(HEVC_VAAPI,        hevc_vaapi);
     REGISTER_HWACCEL(HEVC_VDPAU,        hevc_vdpau);
     REGISTER_HWACCEL(MJPEG_CUVID,       mjpeg_cuvid);
+    REGISTER_HWACCEL(MJPEG_VAAPI,       mjpeg_vaapi);
     REGISTER_HWACCEL(MPEG1_CUVID,       mpeg1_cuvid);
     REGISTER_HWACCEL(MPEG1_XVMC,        mpeg1_xvmc);
     REGISTER_HWACCEL(MPEG1_VDPAU,       mpeg1_vdpau);
@@ -122,6 +123,7 @@ static void register_all(void)
     REGISTER_HWACCEL(WMV3_VAAPI,        wmv3_vaapi);
     REGISTER_HWACCEL(WMV3_VDPAU,        wmv3_vdpau);
     REGISTER_HWACCEL(VP8_VAAPI,         vp8_vaapi);
+
 
     /* video codecs */
     REGISTER_ENCODER(A64MULTI,          a64multi);
