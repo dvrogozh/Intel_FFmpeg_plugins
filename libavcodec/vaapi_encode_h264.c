@@ -203,6 +203,10 @@ typedef struct VAAPIEncodeH264Options {
     int int_ref_qp_delta;
     int insert_aud;
     int64_t max_frame_size;
+#ifdef VPG_DRIVER
+    int roi_enabled;
+    VAEncROI roi_region;
+#endif
 } VAAPIEncodeH264Options;
 
 
@@ -1489,7 +1493,54 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
     ctx->i_per_idr = opt->idr_interval;
     return 0;
 }
+#ifdef VPG_DRIVER
+static int vaapi_encode_h264_write_extra_buffer(AVCodecContext *avctx,
+                                                 VAAPIEncodePicture *pic,
+                                                 int index, int *type,
+                                                 char *data, size_t *data_len)
+{
+    VAAPIEncodeContext       *ctx = avctx->priv_data;
+    VAAPIEncodeH264Context   *priv = ctx->priv_data;
+    VAAPIEncodeH264Options   *opt  = ctx->codec_options;
 
+    if (index == 0 && opt->roi_enabled == 1) {
+        VAEncMiscParameterBuffer *misc_param;
+        VAEncMiscParameterBufferROI *roi_param;
+        int x,y,width, height;
+        // write roi misc param
+        if (*data_len < sizeof(VAEncMiscParameterBufferROI)+sizeof(VAEncMiscParameterBuffer))
+            return AVERROR(EINVAL);
+        *data_len = sizeof(VAEncMiscParameterBufferROI)+sizeof(VAEncMiscParameterBuffer);
+        *type = VAEncMiscParameterBufferType;
+        misc_param = (VAEncMiscParameterBuffer *)data;
+        misc_param->type = VAEncMiscParameterTypeROI;
+        roi_param = (VAEncMiscParameterBufferROI *)misc_param->data;
+        roi_param->num_roi = 1;
+
+        x = opt->roi_region.roi_rectangle.x;
+        y = opt->roi_region.roi_rectangle.y;
+        width = opt->roi_region.roi_rectangle.width;
+        height = opt->roi_region.roi_rectangle.height;
+
+        x = (x < ctx->surface_width) ? x : 0;
+        y = (y < ctx->surface_height) ? y : 0;
+        width = (x + width < ctx->surface_width) ? width : ctx->surface_width - x;
+        height = (y + height < ctx->surface_height) ? height : ctx->surface_height - y;
+
+        opt->roi_region.roi_rectangle.x = x;
+        opt->roi_region.roi_rectangle.y = y;
+        opt->roi_region.roi_rectangle.width = width;
+        opt->roi_region.roi_rectangle.height = height;
+
+        roi_param->roi = &opt->roi_region;
+        roi_param->max_delta_qp = 51;
+        roi_param->min_delta_qp = -51;
+    } else {
+        return AVERROR_EOF;
+    }
+    return 0;
+}
+#endif
 static const VAAPIEncodeType vaapi_encode_type_h264 = {
     .priv_data_size        = sizeof(VAAPIEncodeH264Context),
 
@@ -1513,6 +1564,9 @@ static const VAAPIEncodeType vaapi_encode_type_h264 = {
     .write_extra_header    = &vaapi_encode_h264_write_extra_header,
 
     .write_aud_header      = &vaapi_encode_h264_write_aud_header,
+#ifdef VPG_DRIVER
+    .write_extra_buffer    = &vaapi_encode_h264_write_extra_buffer,
+#endif
 };
 
 static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
@@ -1652,6 +1706,18 @@ static const AVOption vaapi_encode_h264_options[] = {
       OFFSET(int_ref_qp_delta), AV_OPT_TYPE_INT, { .i64 = 0 }, -51, 51, FLAGS },
     { "max_frame_size", "max frame size setting in bit",
       OFFSET(max_frame_size), AV_OPT_TYPE_INT64, { .i64 = 0 }, 0, INT64_MAX, FLAGS },
+    { "roi_enabled", "enable roi region",
+      OFFSET(roi_enabled), AV_OPT_TYPE_INT64, {.i64 = 0 }, 0, 1, FLAGS },
+    { "roi_x", "x pos of roi region",
+      OFFSET(roi_region.roi_rectangle.x), AV_OPT_TYPE_INT64, {.i64 = 0 }, 0, INT64_MAX, FLAGS},
+    { "roi_y", "y pos of roi region",
+      OFFSET(roi_region.roi_rectangle.y), AV_OPT_TYPE_INT64, {.i64 = 0 }, 0, INT64_MAX, FLAGS},
+    { "roi_w", "width of roi region",
+      OFFSET(roi_region.roi_rectangle.width), AV_OPT_TYPE_INT64, {.i64 = 0 }, 0, INT64_MAX, FLAGS},
+    { "roi_h", "height of roi region",
+      OFFSET(roi_region.roi_rectangle.height), AV_OPT_TYPE_INT64, {.i64 = 0 }, 0, INT64_MAX, FLAGS},
+    { "roi_value", "priority of roi region in CBR/VBR, qp delta in CQP",
+      OFFSET(roi_region.roi_value), AV_OPT_TYPE_INT64, {.i64 = 0 }, INT64_MIN, INT64_MAX, FLAGS},
 #else
     { "quality", "Set encode quality (trades off against speed, higher is faster)",
       OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 8, FLAGS },
