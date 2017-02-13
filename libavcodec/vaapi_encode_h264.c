@@ -1822,7 +1822,7 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
 #endif
     }
 #ifdef VPG_DRIVER
-    if (opt->trellis > 0) {
+    if (opt->trellis > 0 && ctx->support_trellis == 1) {
         priv->trellis_params.misc.type =
             VAEncMiscParameterTypeQuantization;
         priv->trellis_params.trellis.quantization_flags.value = opt->trellis;
@@ -1859,6 +1859,8 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
         avctx->b_quant_offset = 0;
         avctx->i_quant_offset = 0;
     }
+    if (!ctx->support_interlaced)
+        avctx->field_order = AV_FIELD_PROGRESSIVE;
 #endif
     ctx->i_per_idr = opt->idr_interval;
     return 0;
@@ -1873,7 +1875,7 @@ static int vaapi_encode_h264_write_extra_buffer(AVCodecContext *avctx,
     VAAPIEncodeH264Context   *priv = ctx->priv_data;
     VAAPIEncodeH264Options   *opt  = ctx->codec_options;
 
-    if (index == 0 && opt->roi_enabled == 1) {
+    if (index == 0 && opt->roi_enabled == 1 && ctx->support_roi == 1) {
         VAEncMiscParameterBuffer *misc_param;
         VAEncMiscParameterBufferROI *roi_param;
         int x,y,width, height;

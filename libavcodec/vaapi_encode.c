@@ -2136,6 +2136,9 @@ static av_cold int vaapi_encode_config_attributes(AVCodecContext *avctx)
         { VAConfigAttribEncMaxRefFrames  },
 #ifdef VPG_DRIVER
         { VAConfigAttribEncIntraRefresh  },
+        { VAConfigAttribEncROI           },
+        { VAConfigAttribEncInterlaced    },
+        { VAConfigAttribEncQuantization  },
 #endif
 #ifndef VPG_DRIVER
         { VAConfigAttribEncPackedHeaders },
@@ -2293,6 +2296,28 @@ static av_cold int vaapi_encode_config_attributes(AVCodecContext *avctx)
         case VAConfigAttribEncIntraRefresh:
             if (attr[i].value & (~VA_ATTRIB_NOT_SUPPORTED)) {
                 ctx->support_rir = 1;
+            }
+            break;
+        case VAConfigAttribEncROI:
+            if (attr[i].value & (~VA_ATTRIB_NOT_SUPPORTED)) {
+                VAConfigAttribValEncROI *VaEncROIValPtr = (VAConfigAttribValEncROI *)(&attr[i].value);
+                int maxNumRoi, roiBrcPriorityLevelSupport;
+
+                maxNumRoi = VaEncROIValPtr->bits.num_roi_regions;
+                roiBrcPriorityLevelSupport = VaEncROIValPtr->bits.roi_rc_priority_support;
+                ctx->support_roi = 1;
+                av_log(NULL, AV_LOG_INFO, "roi is supported，maxNumRoi = %d, roiBrcPriorityLevelSupport = %d\n",
+                      maxNumRoi, roiBrcPriorityLevelSupport);
+            }
+            break;
+        case VAConfigAttribEncQuantization:
+            if (attr[i].value & (~VA_ATTRIB_NOT_SUPPORTED)) {
+                ctx->support_trellis = 1;
+            }
+            break;
+        case VAConfigAttribEncInterlaced:
+            if (attr[i].value & (~VA_ATTRIB_NOT_SUPPORTED)) {
+                ctx->support_interlaced = 1;
             }
             break;
 #endif
