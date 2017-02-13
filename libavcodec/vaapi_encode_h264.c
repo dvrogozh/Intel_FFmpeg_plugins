@@ -944,7 +944,7 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
         //MaxPicOrderCntLsb should greater than max_delta_poc * 2, or else poc will be negative
         i = 1;
         num = 0;
-        max_delta_poc = (2 + avctx->max_b_frames) * 2;
+        max_delta_poc = (2 + avctx->max_b_frames) * 2 * (!!ctx->bipyramid + 1);
         while (i < max_delta_poc * 2) {
             i <<= 1;
             num ++;
