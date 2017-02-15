@@ -651,6 +651,40 @@ FF_ENABLE_DEPRECATION_WARNINGS
             q->extparam_internal[q->nb_extparam_internal++] = (mfxExtBuffer *)&q->extco2;
         }
 #endif
+
+#if QSV_HAVE_CO3
+        // encode mfxExtCodingOption3
+        if (avctx->codec_id == AV_CODEC_ID_H264) {
+            q->extco3.Header.BufferId         = MFX_EXTBUFF_CODING_OPTION3;
+            q->extco3.Header.BufferSz         = sizeof(q->extco3);
+
+            q->extco3.NumSliceI               = q->num_slice_I;
+
+            if((q->param.mfx.RateControlMethod == MFX_RATECONTROL_LA) ||
+               (q->param.mfx.RateControlMethod == MFX_RATECONTROL_LA_HRD)) {
+                if((q->win_brc_size) && (q->winbrc_maxavg_kbps)) {
+                    q->extco3.WinBRCMaxAvgKbps  = q->winbrc_maxavg_kbps;
+                    q->extco3.WinBRCSize        = q->win_brc_size;
+                }
+            }
+            if (q->qvbr_quality >= 1) {
+                if (q->param.mfx.RateControlMethod == MFX_RATECONTROL_QVBR)
+                    q->extco3.QVBRQuality       = q->qvbr_quality;
+                else
+                    av_log(avctx, AV_LOG_DEBUG, "QVBRQuality only used for MFX_RATECONTROL_QVBR \n");
+            }
+
+            q->extco3.DirectBiasAdjustment  = q->direct_bias_adj ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
+
+            if (q->enable_global_motion_bias) {
+                q->extco3.GlobalMotionBiasAdjustment    = MFX_CODINGOPTION_ON;
+                q->extco3.MVCostScalingFactor           = q->mv_cost_sf;
+            }
+
+            q->extparam_internal[q->nb_extparam_internal++] = (mfxExtBuffer *)&q->extco3;
+       }
+#endif
+
     }
 
     if (!check_enc_param(avctx,q)) {

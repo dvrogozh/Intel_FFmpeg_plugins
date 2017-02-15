@@ -108,12 +108,15 @@ typedef struct QSVEncContext {
 #if QSV_HAVE_CO2
     mfxExtCodingOption2 extco2;
 #endif
+#if QSV_HAVE_CO3
+    mfxExtCodingOption3 extco3;
+#endif
 
     mfxExtOpaqueSurfaceAlloc opaque_alloc;
     mfxFrameSurface1       **opaque_surfaces;
     AVBufferRef             *opaque_alloc_buf;
 
-    mfxExtBuffer  *extparam_internal[2 + QSV_HAVE_CO2];
+    mfxExtBuffer  *extparam_internal[2 + QSV_HAVE_CO2+QSV_HAVE_CO3];
     int         nb_extparam_internal;
 
     mfxExtBuffer **extparam;
@@ -154,6 +157,15 @@ typedef struct QSVEncContext {
     int int_ref_cycle_size;
     int int_ref_qp_delta;
     int recovery_point_sei;
+
+    // options for mfxExtCodingOption3
+    unsigned short num_slice_I;
+    unsigned short winbrc_maxavg_kbps;
+    unsigned short win_brc_size;
+    unsigned short qvbr_quality;
+    unsigned short direct_bias_adj;
+    unsigned short enable_global_motion_bias;
+    unsigned short mv_cost_sf;
 
     int a53_cc;
     char *load_plugins;
