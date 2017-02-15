@@ -505,6 +505,24 @@ FF_ENABLE_DEPRECATION_WARNINGS
             if (q->extbrc >= 0)
                 q->extco2.ExtBRC = q->extbrc ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
 
+
+            q->extco2.RepeatPPS               = q->repeatPPS_off ? MFX_CODINGOPTION_OFF : MFX_CODINGOPTION_ON;
+            q->extco2.NumMbPerSlice           = q->numMb_per_slice;
+            q->extco2.FixedFrameRate          = q->fixed_framerate ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
+            q->extco2.DisableVUI              = q->disable_VUI ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
+            q->extco2.BufferingPeriodSEI      = q->buffing_periodSEI;
+            q->extco2.EnableMAD               = q->enableMAD ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
+            q->extco2.UseRawRef               = q->use_raw_ref ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
+
+            if (MFX_RATECONTROL_LA != q->param.mfx.RateControlMethod) {
+                q->extco2.MaxQPI                = q->maxQPI;
+                q->extco2.MinQPI                = q->minQPI;
+                q->extco2.MaxQPP                = q->maxQPP;
+                q->extco2.MinQPP                = q->minQPP;
+                q->extco2.MaxQPB                = q->maxQPB;
+                q->extco2.MinQPB                = q->maxQPB;
+            }
+
             if (q->max_frame_size >= 0)
                 q->extco2.MaxFrameSize = q->max_frame_size;
 #if QSV_HAVE_MAX_SLICE_SIZE

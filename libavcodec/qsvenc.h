@@ -125,6 +125,13 @@ typedef struct QSVEncContext {
     int max_frame_size;
     int max_slice_size;
 
+    int maxQPI;
+    int minQPI;
+    int maxQPP;
+    int minQPP;
+    int maxQPB;
+    int minQPB;
+
     int single_sei_nal_unit;
     int max_dec_frame_buffering;
     int trellis;
@@ -141,6 +148,15 @@ typedef struct QSVEncContext {
     int int_ref_cycle_size;
     int int_ref_qp_delta;
     int recovery_point_sei;
+
+    // options for mfxExtCodingOption2
+    unsigned short repeatPPS_off;
+    unsigned short numMb_per_slice;
+    unsigned short fixed_framerate;
+    unsigned short disable_VUI;
+    unsigned short buffing_periodSEI;
+    unsigned short enableMAD;
+    unsigned short use_raw_ref;
 
     // options for mfxExtCodingOption3
     unsigned short num_slice_I;

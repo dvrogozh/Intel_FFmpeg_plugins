@@ -137,7 +137,22 @@ static const AVOption options[] = {
     { "main"    , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_PROFILE_AVC_MAIN     }, INT_MIN, INT_MAX,     VE, "profile" },
     { "high"    , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_PROFILE_AVC_HIGH     }, INT_MIN, INT_MAX,     VE, "profile" },
 
+    { "maxQPI", "maxumum allowed QP value for I frame, valid range: 1-51; 0 is default value, no limitation on QP;cannot work with LA.", OFFSET(qsv.maxQPI), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 51, VE },
+    { "minQPI", "minimum allowed QP value for I frame, valid range: 1-51; 0 is default value, no limitation on QP;cannot work with LA.", OFFSET(qsv.minQPI), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 51, VE },
+    { "maxQPP", "maxumum allowed QP value for P frame, valid range: 1-51; 0 is default value, no limitation on QP;cannot work with LA.", OFFSET(qsv.maxQPP), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 51, VE },
+    { "minQPP", "minimum allowed QP value for P frame, valid range: 1-51; 0 is default value, no limitation on QP;cannot work with LA.", OFFSET(qsv.minQPP), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 51, VE },
+    { "maxQPB", "maxumum allowed QP value for B frame, valid range: 1-51; 0 is default value, no limitation on QP;cannot work with LA.", OFFSET(qsv.maxQPB), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 51, VE },
+    { "minQPB", "minimum allowed QP value for B frame, valid range: 1-51; 0 is default value, no limitation on QP;cannot work with LA.", OFFSET(qsv.minQPB), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 51, VE },
+
     { "a53cc" , "Use A53 Closed Captions (if available)", OFFSET(qsv.a53_cc), AV_OPT_TYPE_INT, {.i64 = 1}, 0, 1, VE},
+
+    { "repeatPPS",         "The default is on and set flag will off the repetition", OFFSET(qsv.repeatPPS_off), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "numMbperslice",     "This option specifies suggested slice size in number of macroblocks", OFFSET(qsv.numMb_per_slice), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
+    { "fixedframerate",    "This option sets fixed_frame_rate_flag in VUI", OFFSET(qsv.fixed_framerate), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "disableVUI",        "This option sets fixed_frame_rate_flag in VUI", OFFSET(qsv.disable_VUI), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "bufferPeriodSEI","This option controls insertion of buffering period SEI in the encoded bitstrea", OFFSET(qsv.buffing_periodSEI), AV_OPT_TYPE_INT, { .i64 = MFX_BPSEI_DEFAULT }, MFX_BPSEI_DEFAULT, MFX_BPSEI_IFRAME, VE },
+    { "enableMAD",         "Turn ON this flag to enable per-frame reporting of MAD", OFFSET(qsv.enableMAD), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "userawref",         "Set flag to use raw frames for reference instead reconstructed frames", OFFSET(qsv.use_raw_ref), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
 
     { "numSlicei",         "The number of slices for I", OFFSET(qsv.num_slice_I), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
     { "winmaxavg",         "Specifies the maximum bitrate averaged over a sliding window for MFX_RATECONTROL_LA/MFX_RATECONTROL_LA_HRD", OFFSET(qsv.winbrc_maxavg_kbps), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
