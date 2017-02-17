@@ -118,6 +118,13 @@ static const AVOption options[] = {
     { "2x"                     , NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_LOOKAHEAD_DS_2x      }, INT_MIN, INT_MAX,     VE, "look_ahead_downsampling" },
 #endif
 
+    { "resetreflist",  "Set this flag to reset the reference list to non-IDR I-frames of a GOP sequence", OFFSET(qsv.reset_reflist), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "refpicmarkrep", "Set this flag to write the reference picture marking repetition SEI message into the output bitstream", OFFSET(qsv.ref_pic_mark_rep), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "fieldoutput",   "Set this flag to instruct the AVC encoder to output bitstreams immediately after the encoder encodes a field", OFFSET(qsv.field_output), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "audelimiter",    "Set this flag to insert the Access Unit Delimiter NAL", OFFSET(qsv.audelimiter), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "vuinalhrdparam", "Set this flag to insert NAL HRD parameters in the VUI header", OFFSET(qsv.vui_nal_hrd_parameters), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "framepicture",   "Set this flag to encode interlaced fields as interlaced frames", OFFSET(qsv.frame_picture), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+
     { "int_ref_type", "Intra refresh type",                                      OFFSET(qsv.int_ref_type),            AV_OPT_TYPE_INT, { .i64 = -1 }, -1, UINT16_MAX, VE, "int_ref_type" },
         { "none",     NULL, 0, AV_OPT_TYPE_CONST, { .i64 = 0 }, .flags = VE, "int_ref_type" },
         { "vertical", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = 1 }, .flags = VE, "int_ref_type" },

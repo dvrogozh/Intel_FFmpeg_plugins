@@ -125,6 +125,14 @@ typedef struct QSVEncContext {
     int max_frame_size;
     int max_slice_size;
 
+    // options for mfxExtCodingOption
+    int reset_reflist;
+    int ref_pic_mark_rep;
+    int field_output;
+    int audelimiter;
+    int vui_nal_hrd_parameters;
+    int frame_picture;
+
     int maxQPI;
     int minQPI;
     int maxQPP;

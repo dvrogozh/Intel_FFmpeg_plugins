@@ -482,6 +482,14 @@ FF_ENABLE_DEPRECATION_WARNINGS
             if (q->recovery_point_sei >= 0)
                 q->extco.RecoveryPointSEI = q->recovery_point_sei ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
             q->extco.MaxDecFrameBuffering = q->max_dec_frame_buffering;
+
+            q->extco.ResetRefList          = q->reset_reflist ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
+            q->extco.RefPicMarkRep         = q->ref_pic_mark_rep ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
+            q->extco.FieldOutput           = q->field_output ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
+            q->extco.AUDelimiter           = q->audelimiter ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
+            q->extco.VuiNalHrdParameters   = q->vui_nal_hrd_parameters ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
+            q->extco.FramePicture          = q->frame_picture ? MFX_CODINGOPTION_ON : MFX_CODINGOPTION_OFF;
+
         }
 
         q->extparam_internal[q->nb_extparam_internal++] = (mfxExtBuffer *)&q->extco;
