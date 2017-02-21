@@ -154,6 +154,9 @@ static int deint_vaapi_build_filter_params(AVFilterContext *avctx)
     VAProcFilterParameterBufferDeinterlacing params;
     int i;
 
+    if (ctx->va_context == VA_INVALID_ID)
+        return AVERROR(EINVAL);
+
     ctx->nb_deint_caps = VAProcDeinterlacingCount;
     vas = vaQueryVideoProcFilterCaps(ctx->hwctx->display,
                                      ctx->va_context,
@@ -335,6 +338,10 @@ static int deint_vaapi_config_output(AVFilterLink *outlink)
         goto fail;
     }
 
+    err = deint_vaapi_build_filter_params(avctx);
+    if (err < 0)
+        goto fail;
+
     av_freep(&hwconfig);
     av_hwframe_constraints_free(&constraints);
     return 0;
@@ -419,6 +426,13 @@ static int deint_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
 
     output_frame = av_frame_alloc();
     if (!output_frame) {
+        err = AVERROR(ENOMEM);
+        goto fail;
+    }
+
+    err = av_hwframe_get_buffer(ctx->output_frames_ref,
+                                output_frame, 0);
+    if (err < 0) {
         err = AVERROR(ENOMEM);
         goto fail;
     }
