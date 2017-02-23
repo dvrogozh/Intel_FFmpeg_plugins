@@ -319,9 +319,11 @@ static int select_rc_mode(AVCodecContext *avctx, QSVEncContext *q)
     else if (avctx->rc_max_rate == avctx->bit_rate) {
         rc_mode = MFX_RATECONTROL_CBR;
         rc_desc = "constant bitrate (CBR)";
+#if !CONFIG_VAAPI               ///AVBR is not supported when using vaapi.
     } else if (!avctx->rc_max_rate) {
         rc_mode = MFX_RATECONTROL_AVBR;
         rc_desc = "average variable bitrate (AVBR)";
+#endif
     } else {
         rc_mode = MFX_RATECONTROL_VBR;
         rc_desc = "variable bitrate (VBR)";
