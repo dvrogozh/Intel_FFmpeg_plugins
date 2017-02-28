@@ -62,14 +62,17 @@ typedef struct ProcampVAAPIContext {
 
 static int procamp_vaapi_query_formats(AVFilterContext *avctx)
 {
+    int err;
     enum AVPixelFormat pix_fmts[] = {
         AV_PIX_FMT_VAAPI, AV_PIX_FMT_NONE,
     };
 
-    ff_formats_ref(ff_make_format_list(pix_fmts),
-                   &avctx->inputs[0]->out_formats);
-    ff_formats_ref(ff_make_format_list(pix_fmts),
-                   &avctx->outputs[0]->in_formats);
+    if ((err = ff_formats_ref(ff_make_format_list(pix_fmts),
+                              &avctx->inputs[0]->out_formats)) < 0)
+        return err;
+    if ((err = ff_formats_ref(ff_make_format_list(pix_fmts),
+                              &avctx->outputs[0]->in_formats)) < 0)
+        return err;
 
     return 0;
 }
@@ -431,7 +434,7 @@ static int procamp_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame
     }
 
     if (params_id != VA_INVALID_ID)
-        vaDestroyBuffer(ctx->hwctx->display, &params_id);
+        vaDestroyBuffer(ctx->hwctx->display, params_id);
     av_frame_copy_props(output_frame, input_frame);
     av_frame_free(&input_frame);
 
