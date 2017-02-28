@@ -509,10 +509,9 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *inpicref)
 #define MAX_OVERLAY_BUFFER 2
 #define MAIN_OVERLAY 0
 #define TOP_OVERLAY 1
-static AVFrame *blend_image(AVFilterContext *avctx, AVFrame *main, AVFrame *overlay, int x, int y)
+static AVFrame *blend_image(AVFilterContext *avctx, AVFrame *main, const AVFrame *overlay, int x, int y)
 {
     AVFilterLink *inlink = avctx->inputs[0];
-    AVFilterLink *outlink = avctx->outputs[0];
     OverlayVAAPIContext *ctx = avctx->priv;
     AVFrame *output_frame = NULL;
     VASurfaceID main_surface, overlay_surface, output_surface;
@@ -680,26 +679,16 @@ static AVFrame *blend_image(AVFilterContext *avctx, AVFrame *main, AVFrame *over
     }
 
     if (ctx->filter_buffer != VA_INVALID_ID) {
-        vaDestroyBuffer(ctx->hwctx->display, &ctx->filter_buffer);
+        vaDestroyBuffer(ctx->hwctx->display, ctx->filter_buffer);
         ctx->filter_buffer = VA_INVALID_ID;
     }
 
-    if (ctx->hwctx->driver_quirks &
-        AV_VAAPI_DRIVER_QUIRK_RENDER_PARAM_BUFFERS) {
-        vas = vaDestroyBuffer(ctx->hwctx->display, params_id);
-        if (vas != VA_STATUS_SUCCESS) {
-            av_log(ctx, AV_LOG_ERROR, "Failed to free parameter buffer: "
-                   "%d (%s).\n", vas, vaErrorStr(vas));
-            // And ignore.
-        }
-    }
-
     if (ctx->filter_buffer != VA_INVALID_ID)
-        vaDestroyBuffer(ctx->hwctx->display, &ctx->filter_buffer);
+        vaDestroyBuffer(ctx->hwctx->display, ctx->filter_buffer);
 
     for (int i = 0; i < MAX_OVERLAY_BUFFER; i++)
         if (params_id[i] != VA_INVALID_ID)
-            vaDestroyBuffer(ctx->hwctx->display, &params_id[i]);
+            vaDestroyBuffer(ctx->hwctx->display, params_id[i]);
 
     av_frame_copy_props(output_frame, main);
     av_frame_free(&main);
@@ -715,12 +704,12 @@ static AVFrame *blend_image(AVFilterContext *avctx, AVFrame *main, AVFrame *over
     // do something else nasty, but once we're in this failure case there
     // isn't much else we can do.
 fail_after_begin:
-    vaRenderPicture(ctx->hwctx->display, ctx->va_context, &params_id, MAX_OVERLAY_BUFFER);
+    vaRenderPicture(ctx->hwctx->display, ctx->va_context, &params_id[0], MAX_OVERLAY_BUFFER);
 fail_after_render:
     vaEndPicture(ctx->hwctx->display, ctx->va_context);
 fail:
     if (ctx->filter_buffer != VA_INVALID_ID)
-        vaDestroyBuffer(ctx->hwctx->display, &ctx->filter_buffer);
+        vaDestroyBuffer(ctx->hwctx->display, ctx->filter_buffer);
     av_frame_free(&main);
     av_frame_free(&output_frame);
     return NULL;
@@ -728,7 +717,7 @@ fail:
 
 
 static AVFrame *do_blend(AVFilterContext *ctx, AVFrame *mainpic,
-                         AVFrame *second)
+                         const AVFrame *second)
 {
     OverlayVAAPIContext *s = ctx->priv;
     AVFilterLink *inlink = ctx->inputs[0];
