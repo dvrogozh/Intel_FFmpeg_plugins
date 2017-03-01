@@ -2418,6 +2418,17 @@ static av_cold int vaapi_encode_init_rate_control(AVCodecContext *avctx)
         sizeof(ctx->fr_params);
 #endif
 
+    ctx->fr_params.misc.type = VAEncMiscParameterTypeFrameRate;
+    if (avctx->framerate.num > 0 && avctx->framerate.den > 0) {
+        ctx->fr_params.fr.framerate = 100 * avctx->framerate.num / avctx->framerate.den;
+    } else {
+        ctx->fr_params.fr.framerate = 100 * avctx->time_base.den / avctx->time_base.num;
+    }
+    ctx->global_params[ctx->nb_global_params] =
+        &ctx->fr_params.misc;
+    ctx->global_params_size[ctx->nb_global_params++] =
+        sizeof(ctx->fr_params);
+
     return 0;
 }
 
