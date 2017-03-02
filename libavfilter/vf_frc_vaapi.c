@@ -346,6 +346,8 @@ static int frc_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
 
     //use the 24 fps surface output frame num as max out surface num
     VASurfaceID input_surface, output_surface[MAX_OUT_SURFACE];
+    VABufferID in_buffer, out_buffer;
+    AVFrame *failed_frame;
     VAProcPipelineParameterBuffer params;
     VAProcFilterParameterBufferFrameRateConversion *filter_params;
     void *filter_params_addr = NULL;
@@ -403,6 +405,7 @@ static int frc_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
             params.surface = (VASurfaceID)(uintptr_t)ctx->first_frame->data[3];//first surface
         else
             params.surface = input_surface;
+        in_buffer = ctx->pipeline_buffer[i];
         vas = vaCreateBuffer(ctx->hwctx->display, ctx->va_context,
                              VAProcPipelineParameterBufferType,
                              sizeof(params), 1, &params, &ctx->pipeline_buffer[i]);
@@ -412,8 +415,6 @@ static int frc_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
             err = AVERROR(EIO);
             goto fail_after_begin;
         }
-
-
         av_log(ctx, AV_LOG_DEBUG, "Frame rate conversion parameter buffer is %#x.\n",
                 ctx->pipeline_buffer[i]);
     }
@@ -426,7 +427,8 @@ static int frc_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
             err = AVERROR(ENOMEM);
             goto fail;
         }
-
+ 
+        failed_frame = ctx->output_frame[i];
         err = av_hwframe_get_buffer(ctx->output_frames_ref, ctx->output_frame[i], 0);
         if (err < 0) {
             av_log(ctx, AV_LOG_ERROR, "Failed to get surface for "
@@ -437,6 +439,7 @@ static int frc_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
                    output_surface[i]);
 
         //configure each output picuture's param
+        out_buffer = ctx->filter_buffer[i];
         vas = vaMapBuffer(ctx->hwctx->display, ctx->filter_buffer[i],
                                       &filter_params_addr);
         if (vas != VA_STATUS_SUCCESS) {
@@ -470,12 +473,16 @@ static int frc_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
             goto fail;
         }
 
-        if ((i < 3 && IS_24FPS) || (!IS_24FPS))
+        if ((i < 3 && IS_24FPS) || (!IS_24FPS)) {
+            in_buffer = ctx->pipeline_buffer[0];
             vas = vaRenderPicture(ctx->hwctx->display, ctx->va_context,
-                                  ctx->pipeline_buffer, 1);
-        else
+                                  &ctx->pipeline_buffer[0], 1);
+        }
+        else {
+            in_buffer = ctx->pipeline_buffer[1];
             vas = vaRenderPicture(ctx->hwctx->display, ctx->va_context,
                                   &ctx->pipeline_buffer[1], 1);
+        }
         if (vas != VA_STATUS_SUCCESS) {
             av_log(ctx, AV_LOG_ERROR, "Failed to render parameter buffer: "
                    "%d (%s).\n", vas, vaErrorStr(vas));
@@ -508,20 +515,11 @@ static int frc_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
         ctx->frame_out++;
     }
     for (int i = 0; i < MAX_IN_BUFFER; i++)
-        if (ctx->pipeline_buffer[i] != VA_INVALID_ID) {
-            vaDestroyBuffer(ctx->hwctx->display, &ctx->pipeline_buffer[i]);
+        if (ctx->pipeline_buffer[i] != VA_INVALID_ID || (ctx->hwctx->driver_quirks &
+        AV_VAAPI_DRIVER_QUIRK_RENDER_PARAM_BUFFERS)) {
+            vaDestroyBuffer(ctx->hwctx->display, ctx->pipeline_buffer[i]);
             ctx->pipeline_buffer[i] = VA_INVALID_ID;
         }
-
-//    if (ctx->hwctx->driver_quirks &
-//        AV_VAAPI_DRIVER_QUIRK_RENDER_PARAM_BUFFERS) {
-//        vas = vaDestroyBuffer(ctx->hwctx->display, params_id);
-//        if (vas != VA_STATUS_SUCCESS) {
-//            av_log(ctx, AV_LOG_ERROR, "Failed to free parameter buffer: "
-//                   "%d (%s).\n", vas, vaErrorStr(vas));
-//            // And ignore.
-//        }
-//    }
 
     av_frame_free(&input_frame);
     if (ctx->first_frame)
@@ -535,14 +533,14 @@ static int frc_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
     // do something else nasty, but once we're in this failure case there
     // isn't much else we can do.
 fail_after_begin:
-    vaRenderPicture(ctx->hwctx->display, ctx->va_context, ctx->pipeline_buffer, IN_BUF_NUM);
+    vaRenderPicture(ctx->hwctx->display, ctx->va_context, &in_buffer, 1);
 fail_after_render:
     vaEndPicture(ctx->hwctx->display, ctx->va_context);
 fail:
     if (filter_params_addr)
-        vaUnmapBuffer(ctx->hwctx->display, ctx->filter_buffer);
+        vaUnmapBuffer(ctx->hwctx->display, out_buffer);
     av_frame_free(&input_frame);
-    av_frame_free(ctx->output_frame);
+    av_frame_free(&failed_frame);
     return err;
 }
 
