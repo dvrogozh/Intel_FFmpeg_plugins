@@ -318,6 +318,11 @@ int hw_device_setup_for_encode(OutputStream *ost)
     if (type != AV_HWDEVICE_TYPE_NONE) {
         dev = hw_device_get_by_type(type);
         if (!dev) {
+            hw_device_init_from_string(av_hwdevice_get_type_name(type),
+                                       &dev);
+        }
+
+        if (!dev) {
             av_log(ost->enc_ctx, AV_LOG_WARNING, "No device available "
                    "for encoder (device type %s for codec %s).\n",
                    av_hwdevice_get_type_name(type), ost->enc->name);
