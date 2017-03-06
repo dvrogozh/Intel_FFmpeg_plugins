@@ -18,6 +18,7 @@
 
 #include <va/va.h>
 #include <va/va_enc_h264.h>
+#include <float.h>
 
 #include "libavutil/avassert.h"
 #include "libavutil/internal.h"
@@ -202,6 +203,7 @@ typedef struct VAAPIEncodeH264Options {
     int int_ref_cycle_size;
     int int_ref_qp_delta;
     int insert_aud;
+    double framerate;
     int64_t max_frame_size;
 #ifdef VPG_DRIVER
     int roi_enabled;
@@ -2031,6 +2033,8 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
     ctx->surface_width  = FFALIGN(avctx->width,  16);
     ctx->surface_height = FFALIGN(avctx->height, 16);
 
+    if (opt->framerate)
+        avctx->framerate = av_d2q(opt->framerate, INT_MAX);
 #ifdef VPG_DRIVER
     ctx->max_ref_nr = avctx->refs;
     if (ctx->max_ref_nr > MAX_PICTURE_REFERENCES)
@@ -2058,6 +2062,8 @@ static const AVOption vaapi_encode_h264_options[] = {
       0, AV_OPT_TYPE_CONST, { .i64 = VAAPI_RC_CBR }, 0, 0, FLAGS, "rc_strategy"},
     { "vbr", "vbr ratecontrol method",
       0, AV_OPT_TYPE_CONST, { .i64 = VAAPI_RC_VBR }, 0, 0, FLAGS, "rc_strategy"},
+    {"fps", "set framerate for h264 vaapi encoder",
+      OFFSET(framerate), AV_OPT_TYPE_DOUBLE, {.i64 = 0 }, 0, DBL_MAX, FLAGS},
 #ifdef VPG_DRIVER
     { "quality", "Set encode quality (trades off against speed, higher is faster)",
       OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 4 }, 1, 7, FLAGS },
