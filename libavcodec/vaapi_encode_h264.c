@@ -2064,6 +2064,16 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
         }
     }
     ctx->bipyramid = opt->bipyramid;
+    if (ctx->bipyramid) {
+        if (!avctx->max_b_frames) {
+            avctx->max_b_frames = 2;
+            av_log(avctx, AV_LOG_WARNING, "set b-frames to 2 for pyramid-b.\n");
+        }
+        if (ctx->max_ref_nr < 3) {
+            ctx->max_ref_nr = 3;
+            av_log(avctx, AV_LOG_WARNING, "change ref-num to 3 for pyramid-b.\n");
+        }
+    }
 #endif
     return ff_vaapi_encode_init(avctx);
 }
