@@ -2056,8 +2056,13 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
         ctx->max_ref_nr = 2;
     if (ctx->max_ref_nr < 1 && avctx->gop_size)
         ctx->max_ref_nr = 1;
-    if (avctx->field_order != AV_FIELD_PROGRESSIVE && avctx->field_order != AV_FIELD_UNKNOWN)
+    if (avctx->field_order != AV_FIELD_PROGRESSIVE && avctx->field_order != AV_FIELD_UNKNOWN) {
         ctx->surface_height = FFALIGN(avctx->height, 32);
+        if (ctx->max_ref_nr < 3) {
+            ctx->max_ref_nr = 3;
+            av_log(avctx, AV_LOG_WARNING, "change ref-num to 3 for interlace encoding.\n");
+        }
+    }
     ctx->bipyramid = opt->bipyramid;
 #endif
     return ff_vaapi_encode_init(avctx);
