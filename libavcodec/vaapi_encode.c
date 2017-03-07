@@ -2356,7 +2356,7 @@ static av_cold int vaapi_encode_init_rate_control(AVCodecContext *avctx)
     if (avctx->rc_initial_buffer_occupancy)
         hrd_initial_buffer_fullness = avctx->rc_initial_buffer_occupancy;
     else
-        hrd_initial_buffer_fullness = hrd_buffer_size * 3 / 4;
+        hrd_initial_buffer_fullness = hrd_buffer_size / 2;
 
     if (ctx->va_rc_mode == VA_RC_CBR) {
         rc_bits_per_second   = avctx->bit_rate;

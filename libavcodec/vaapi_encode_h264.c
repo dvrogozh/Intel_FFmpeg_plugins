@@ -1864,6 +1864,11 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
     if (!ctx->support_interlaced)
         avctx->field_order = AV_FIELD_PROGRESSIVE;
 #endif
+    // driver chooses best QP according to rc
+    if (VA_RC_CBR == ctx->va_rc_mode) {
+        avctx->qmax = 0;
+        avctx->qmin = 0;
+    }
     ctx->i_per_idr = opt->idr_interval;
     return 0;
 }
