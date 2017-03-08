@@ -1186,9 +1186,17 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
         pic->refs[pic->nb_refs - 1] = pic;
         pic->nb_refs ++;
 
-        pic->dpbs[pic->nb_dpbs] = pic->dpbs[pic->nb_dpbs - 1];
-        pic->dpbs[pic->nb_dpbs - 1] = pic;
+        for (i = 0; i < pic->nb_dpbs; i++) {
+            if (pic->dpbs[pic->nb_dpbs - i - 1]->display_order > pic->display_order)
+                pic->dpbs[pic->nb_dpbs - i] = pic->dpbs[pic->nb_dpbs - i - 1];
+            av_assert0 (pic->nb_dpbs - i - 2 >= 0);
+            if (pic->dpbs[pic->nb_dpbs - i - 2]->display_order < pic->display_order) {
+                pic->dpbs[pic->nb_dpbs - i - 1] = pic;
+                break;
+            }
+        }
         pic->nb_dpbs ++;
+
         if (pic->frame_num >= ctx->max_ref_nr) {
             for (i = 0; i < pic->nb_refs - 1; i++)
                 pic->refs[i] = pic->refs[i + 1];
