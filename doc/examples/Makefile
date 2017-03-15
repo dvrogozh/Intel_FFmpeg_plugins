@@ -29,6 +29,7 @@ EXAMPLES=       avio_dir_cmd                       \
                 scaling_video                      \
                 transcode_aac                      \
                 transcoding                        \
+                transcoding_qsv                    \
 
 OBJS=$(addsuffix .o,$(EXAMPLES))
 
@@ -37,6 +38,7 @@ avcodec:           LDLIBS += -lm
 encode_audio:      LDLIBS += -lm
 muxing:            LDLIBS += -lm
 resampling_audio:  LDLIBS += -lm
+transcoding_qsv:   CFLAGS += $(shell pkg-config --cflags libmfx)
 
 .phony: all clean-test clean
 
