@@ -179,6 +179,13 @@ static int scale_vaapi_config_output(AVFilterLink *outlink)
             goto fail;
         }
     }
+    //while user only set denoise or sharpness
+    //set default output width and height to input value
+    if ((ctx->denoise != -1 || ctx->sharpness != -1) &&
+        ctx->output_height == 0 && ctx->output_width == 0) {
+        ctx->output_width = avctx->inputs[0]->w;
+        ctx->output_height = avctx->inputs[0]->h;
+    }
 
     if ((err = ff_scale_eval_dimensions(ctx,
                                         ctx->w_expr, ctx->h_expr,
