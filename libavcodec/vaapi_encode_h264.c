@@ -1961,6 +1961,9 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
     VAAPIEncodeContext     *ctx = avctx->priv_data;
     VAAPIEncodeH264Options *opt =
         (VAAPIEncodeH264Options*)ctx->codec_options_data;
+#ifdef VPG_DRIVER
+    int b_frames, idx;
+#endif
 
     ctx->codec = &vaapi_encode_type_h264;
 
@@ -2071,7 +2074,22 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
         }
         if (ctx->max_ref_nr < 3) {
             ctx->max_ref_nr = 3;
-            av_log(avctx, AV_LOG_WARNING, "change ref-num to 3 for pyramid-b.\n");
+            av_log(avctx, AV_LOG_WARNING, "change default ref-num to 3 for pyramid-b.\n");
+        }
+
+        idx = 1;
+        b_frames = avctx->max_b_frames;
+        while (b_frames > 0) {
+            b_frames >>= 1;
+            idx ++;
+        }
+        if (ctx->max_ref_nr < idx) {
+            ctx->max_ref_nr = idx;
+            av_log(avctx, AV_LOG_WARNING, "change ref-num to %d for pyramid-b.\n", ctx->max_ref_nr);
+        }
+        if (ctx->max_ref_nr > MAX_PICTURE_REFERENCES) {
+            ctx->max_ref_nr = MAX_PICTURE_REFERENCES;
+            av_log(avctx, AV_LOG_WARNING, "change ref-num to max %d for pyramid-b.\n", ctx->max_ref_nr);
         }
     }
 #endif
