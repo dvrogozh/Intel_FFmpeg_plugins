@@ -232,10 +232,8 @@ static int vaapi_encode_one_field(AVCodecContext *avctx,
             // should set all of them to 0 to let encoder choose the best QP according to rate control.
             // If only the bad qp is calibrated, for example set max qp to 0, then max qp will be less
             // than min qp, and VA driver will generate a very large bit stream.
-            if ((ctx->rc_params.rc.initial_qp < 0 || ctx->rc_params.rc.initial_qp > 51)
-                || (ctx->rc_params.rc.max_qp < 0 || ctx->rc_params.rc.max_qp > 51)
-                || (ctx->rc_params.rc.min_qp < 0 || ctx->rc_params.rc.min_qp > 51)
-                || (ctx->rc_params.rc.max_qp && ctx->rc_params.rc.max_qp < ctx->rc_params.rc.min_qp)) {
+            if (ctx->rc_params.rc.initial_qp > 51 || ctx->rc_params.rc.max_qp > 51
+                || ctx->rc_params.rc.min_qp > 51 || ctx->rc_params.rc.max_qp < ctx->rc_params.rc.min_qp) {
                 ctx->rc_params.rc.max_qp = 0;
                 ctx->rc_params.rc.initial_qp = 0;
                 ctx->rc_params.rc.min_qp = 0;
@@ -255,7 +253,7 @@ static int vaapi_encode_one_field(AVCodecContext *avctx,
         err = ctx->codec->write_aud_header(avctx, pic, data, &bit_len);
         if (err < 0) {
             av_log(avctx, AV_LOG_ERROR, "Failed to write aud "
-                   "header %d: %d.\n", err);
+                   "header: %d.\n", err);
             goto fail;
         }
         err = vaapi_encode_make_packed_header(avctx, pic, VAEncPackedHeaderRawData,
@@ -703,10 +701,8 @@ static int vaapi_encode_issue(AVCodecContext *avctx,
             // should set all of them to 0 to let encoder choose the best QP according to rate control.
             // If only the bad qp is calibrated, for example set max qp to 0, then max qp will be less
             // than min qp, and VA driver will generate a very large bit stream.
-            if ((ctx->rc_params.rc.initial_qp < 0 || ctx->rc_params.rc.initial_qp > 51)
-                   || (ctx->rc_params.rc.max_qp < 0 || ctx->rc_params.rc.max_qp > 51)
-                   || (ctx->rc_params.rc.min_qp < 0 || ctx->rc_params.rc.min_qp > 51)
-                   || (ctx->rc_params.rc.max_qp && ctx->rc_params.rc.max_qp < ctx->rc_params.rc.min_qp)) {
+            if (ctx->rc_params.rc.initial_qp > 51 || ctx->rc_params.rc.max_qp > 51
+                || ctx->rc_params.rc.min_qp > 51 || ctx->rc_params.rc.max_qp < ctx->rc_params.rc.min_qp) {
                 ctx->rc_params.rc.max_qp = 0;
                 ctx->rc_params.rc.initial_qp = 0;
                 ctx->rc_params.rc.min_qp = 0;
@@ -726,7 +722,7 @@ static int vaapi_encode_issue(AVCodecContext *avctx,
         err = ctx->codec->write_aud_header(avctx, pic, data, &bit_len);
         if (err < 0) {
             av_log(avctx, AV_LOG_ERROR, "Failed to write aud "
-                   "header %d: %d.\n", err);
+                   "header: %d.\n", err);
             goto fail;
         }
         err = vaapi_encode_make_packed_header(avctx, pic, VAEncPackedHeaderRawData,
@@ -1340,6 +1336,9 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
     VAAPIEncodeContext *ctx = avctx->priv_data;
     VAAPIEncodePicture *start, *end, *pic;
     int i;
+#ifdef VPG_DRIVER
+    int j;
+#endif
 
     if (ctx->force_idr_frame) {
         vaapi_encode_mangle_end(avctx);
@@ -1466,8 +1465,6 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
 
             pic->type = PICTURE_TYPE_B;
 #ifdef VPG_DRIVER
-            int j;
-
             if (ctx->bipyramid) {
                 pic->mini_gop_cnt = ctx->p_counter;
                 for (j = 0; j < 2; j++) {
