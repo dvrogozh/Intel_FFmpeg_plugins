@@ -86,10 +86,10 @@ void *ff_vaapi_alloc_iq_matrix(FFVAContext *vactx, unsigned int size);
 uint8_t *ff_vaapi_alloc_bitplane(FFVAContext *vactx, uint32_t size);
 
 /** Allocate a new prob buffer */
-uint8_t *ff_vaapi_alloc_prob_buffer(FFVAContext *vactx, uint32_t size);
+void *ff_vaapi_alloc_prob_buffer(FFVAContext *vactx, uint32_t size);
 
 /** Allocate a new huffman buffer */
-uint8_t *ff_vaapi_alloc_huf_buffer(FFVAContext *vactx, uint32_t size);
+void *ff_vaapi_alloc_huf_buffer(FFVAContext *vactx, uint32_t size);
 /**
  * Allocate a new slice descriptor for the input slice.
  *

@@ -186,12 +186,12 @@ uint8_t *ff_vaapi_alloc_bitplane(FFVAContext *vactx, uint32_t size)
     return alloc_buffer(vactx, VABitPlaneBufferType, size, &vactx->bitplane_buf_id);
 }
 
-uint8_t *ff_vaapi_alloc_prob_buffer(FFVAContext *vactx, uint32_t size)
+void *ff_vaapi_alloc_prob_buffer(FFVAContext *vactx, uint32_t size)
 {
     return alloc_buffer(vactx, VAProbabilityBufferType, size, &vactx->prob_buf_id);
 }
 
-uint8_t *ff_vaapi_alloc_huf_buffer(FFVAContext *vactx, uint32_t size)
+void *ff_vaapi_alloc_huf_buffer(FFVAContext *vactx, uint32_t size)
 {
     return alloc_buffer(vactx, VAHuffmanTableBufferType, size, &vactx->huf_buf_id);
 }
