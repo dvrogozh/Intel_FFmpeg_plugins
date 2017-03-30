@@ -255,6 +255,9 @@ static int vaapi_frames_get_constraints(AVHWDeviceContext *hwdev,
                     constraints->valid_sw_formats[j++] = pix_fmt;
             }
             av_assert0(j == pix_fmt_count);
+#ifdef VPG_DRIVER
+            constraints->valid_sw_formats[j++] = AV_PIX_FMT_BGRA;
+#endif
             constraints->valid_sw_formats[j] = AV_PIX_FMT_NONE;
         }
     } else {
@@ -268,6 +271,9 @@ static int vaapi_frames_get_constraints(AVHWDeviceContext *hwdev,
         }
         for (i = 0; i < ctx->nb_formats; i++)
             constraints->valid_sw_formats[i] = ctx->formats[i].pix_fmt;
+#ifdef VPG_DRIVER
+        constraints->valid_sw_formats[i++] = AV_PIX_FMT_BGRA;
+#endif
         constraints->valid_sw_formats[i] = AV_PIX_FMT_NONE;
     }
 
@@ -318,7 +324,11 @@ static int vaapi_device_init(AVHWDeviceContext *hwdev)
         err = AVERROR(EIO);
         goto fail;
     }
+#ifdef VPG_DRIVER
+    image_list = av_malloc((image_count + 1)* sizeof(*image_list));
+#else
     image_list = av_malloc(image_count * sizeof(*image_list));
+#endif
     if (!image_list) {
         err = AVERROR(ENOMEM);
         goto fail;
@@ -329,7 +339,11 @@ static int vaapi_device_init(AVHWDeviceContext *hwdev)
         goto fail;
     }
 
-    ctx->formats  = av_malloc(image_count * sizeof(*ctx->formats));
+#ifdef VPG_DRIVER
+    ctx->formats  = av_mallocz((image_count + 1) * sizeof(*ctx->formats));
+#else
+    ctx->formats  = av_mallocz(image_count * sizeof(*ctx->formats));
+#endif
     if (!ctx->formats) {
         err = AVERROR(ENOMEM);
         goto fail;
@@ -349,7 +363,14 @@ static int vaapi_device_init(AVHWDeviceContext *hwdev)
             ++ctx->nb_formats;
         }
     }
-
+#ifdef VPG_DRIVER
+    ctx->formats[ctx->nb_formats].pix_fmt      = AV_PIX_FMT_BGRA;
+    image_list[ctx->nb_formats].fourcc = VA_FOURCC_ARGB;
+    image_list[ctx->nb_formats].byte_order = 1;
+    image_list[ctx->nb_formats].bits_per_pixel = 32;
+    ctx->formats[ctx->nb_formats].image_format = image_list[ctx->nb_formats];
+    ++ctx->nb_formats;
+#endif
     if (hwctx->driver_quirks & AV_VAAPI_DRIVER_QUIRK_USER_SET) {
         av_log(hwdev, AV_LOG_VERBOSE, "Not detecting driver: "
                "quirks set by user.\n");

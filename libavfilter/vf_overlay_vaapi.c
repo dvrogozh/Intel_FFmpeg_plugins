@@ -477,19 +477,19 @@ fail:
     return err;
 }
 
-static int vaapi_proc_colour_standard(enum AVColorSpace av_cs)
-{
-    switch(av_cs) {
-#define CS(av, va) case AVCOL_SPC_ ## av: return VAProcColorStandard ## va;
-        CS(BT709,     BT709);
-        CS(BT470BG,   BT601);
-        CS(SMPTE170M, SMPTE170M);
-        CS(SMPTE240M, SMPTE240M);
-#undef CS
-    default:
-        return VAProcColorStandardNone;
-    }
-}
+//static int vaapi_proc_colour_standard(enum AVColorSpace av_cs)
+//{
+//    switch(av_cs) {
+//#define CS(av, va) case AVCOL_SPC_ ## av: return VAProcColorStandard ## va;
+//        CS(BT709,     BT709);
+//        CS(BT470BG,   BT601);
+//        CS(SMPTE170M, SMPTE170M);
+//        CS(SMPTE240M, SMPTE240M);
+//#undef CS
+//    default:
+//        return VAProcColorStandardNone;
+//    }
+//}
 
 static int overlay_request_frame(AVFilterLink *outlink)
 {
@@ -590,8 +590,9 @@ static AVFrame *blend_image(AVFilterContext *avctx, AVFrame *main, const AVFrame
         .width  = ctx->output_width,
         .height = ctx->output_height,
     };
-
-    blend_state.flags = VA_BLEND_LUMA_KEY | VA_BLEND_GLOBAL_ALPHA;
+    //ARGB blend flags set zero because alpha value has mapped into surface
+    blend_state.flags = ctx->overlay_frames->sw_format == AV_PIX_FMT_NV12 ?
+            VA_BLEND_LUMA_KEY | VA_BLEND_GLOBAL_ALPHA : 0;
     blend_state.global_alpha = ctx->alpha;
     blend_state.min_luma = ctx->luma_min;
     blend_state.max_luma = ctx->luma_max;
@@ -601,9 +602,9 @@ static AVFrame *blend_image(AVFilterContext *avctx, AVFrame *main, const AVFrame
     filter_params.output_region = &out_region;
     filter_params.surface_region = &out_region;
     filter_params.surface = output_surface;
-    filter_params.surface_color_standard =
-                vaapi_proc_colour_standard(main->colorspace);
     filter_params.surface_color_standard = VAProcColorStandardBT601;
+    filter_params.pipeline_flags = VA_PROC_PIPELINE_SUBPICTURES;
+    filter_params.output_color_standard = VAProcColorStandardBT601;
 
     vas = vaCreateBuffer(ctx->hwctx->display, ctx->va_context,
                          VAProcPipelineParameterBufferType,
@@ -635,15 +636,23 @@ static AVFrame *blend_image(AVFilterContext *avctx, AVFrame *main, const AVFrame
     for (int i = 0; i < MAX_OVERLAY_BUFFER; i++) {
         params[i].surface = i == MAIN_OVERLAY ? main_surface : overlay_surface;
         params[i].surface_region = (i == MAIN_OVERLAY ? &main_region : &overlay_region);
-        params[i].surface_color_standard = VAProcColorStandardBT601;
-
+        //ARGB fmt use VAProcColorStardardNone as surface color stardard VPG DRIVER
+        if (i == MAIN_OVERLAY)
+            params[i].surface_color_standard = ctx->main_frames->sw_format == AV_PIX_FMT_NV12 ?
+                    VAProcColorStandardBT601 : VAProcColorStandardNone;
+        else
+            params[i].surface_color_standard = ctx->overlay_frames->sw_format == AV_PIX_FMT_NV12 ?
+                    VAProcColorStandardBT601 : VAProcColorStandardNone;
         params[i].output_region = (i == MAIN_OVERLAY ? &main_out_region : &overlay_out_region);
-        params[i].output_background_color = 0xff000000;
+        params[i].output_background_color = 0x00000000;
         params[i].output_color_standard = VAProcColorStandardBT601;
 
         params[i].pipeline_flags |= VA_PROC_PIPELINE_SUBPICTURES;
         params[i].filter_flags |= VA_FILTER_SCALING_HQ;
-        params[i].blend_state = (i == MAIN_OVERLAY ? NULL : &blend_state);
+        if (i == MAIN_OVERLAY)
+            params[i].blend_state = (ctx->main_frames->sw_format == AV_PIX_FMT_NV12 ? NULL : &blend_state);
+        else
+            params[i].blend_state = &blend_state;
 
         params[i].filters = 0;
         params[i].num_filters = 0;
