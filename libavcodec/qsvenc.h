@@ -112,6 +112,7 @@ typedef struct QSVEncContext {
     // options set by the caller
     int async_depth;
     int idr_interval;
+    int buffer_size;
     int profile;
     int preset;
     int avbr_accuracy;
