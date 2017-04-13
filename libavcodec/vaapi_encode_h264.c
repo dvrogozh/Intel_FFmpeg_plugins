@@ -1842,6 +1842,12 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
         ctx->global_params_size[ctx->nb_global_params++] =
             sizeof(priv->trellis_params);
     }
+
+    // If mbbrc is set to default, when quality level is 1 or 2,
+    // mbbrc is enable, PSNR will be low.
+    // To align with MSDK, set mbbrc to disable.
+    if (!opt->mbbrc)
+        opt->mbbrc = 2;
     ctx->rc_params.rc.rc_flags.bits.mb_rate_control = opt->mbbrc;
 
     if (opt->int_ref_type > 0 && ctx->support_rir == 1) {
