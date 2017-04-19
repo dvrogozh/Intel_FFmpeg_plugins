@@ -2574,7 +2574,7 @@ static int process_input_packet(InputStream *ist, const AVPacket *pkt, int no_eo
             break;
         case AVMEDIA_TYPE_VIDEO:
             ret = decode_video    (ist, repeating ? NULL : &avpkt, &got_output, !pkt);
-            if (!repeating || !pkt || got_output) {
+            if (!repeating && (!pkt || got_output)) {
                 if (pkt && pkt->duration) {
                     duration = av_rescale_q(pkt->duration, ist->st->time_base, AV_TIME_BASE_Q);
                 } else if(ist->dec_ctx->framerate.num != 0 && ist->dec_ctx->framerate.den != 0) {
