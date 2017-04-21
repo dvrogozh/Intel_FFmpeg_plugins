@@ -162,7 +162,7 @@ static enum AVPixelFormat qsv_map_fourcc(uint32_t fourcc)
     return AV_PIX_FMT_NONE;
 }
 
-int ff_qsv_map_pixfmt(enum AVPixelFormat format, uint32_t *fourcc)
+enum AVPixelFormat ff_qsv_map_pixfmt(enum AVPixelFormat format, uint32_t *fourcc)
 {
     switch (format) {
     case AV_PIX_FMT_YUV420P:
@@ -175,7 +175,7 @@ int ff_qsv_map_pixfmt(enum AVPixelFormat format, uint32_t *fourcc)
         *fourcc = MFX_FOURCC_P010;
         return AV_PIX_FMT_P010;
     default:
-        return AVERROR(ENOSYS);
+        return AV_PIX_FMT_NONE;//AVERROR(ENOSYS);
     }
 }
 

@@ -494,7 +494,7 @@ int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
         enum AVPixelFormat qsv_format;
 
         qsv_format = ff_qsv_map_pixfmt(q->parser->format, &q->fourcc);
-        if (qsv_format < 0) {
+        if (AV_PIX_FMT_NONE == qsv_format) {
             av_log(avctx, AV_LOG_ERROR,
                    "Decoding pixel format '%s' is not supported\n",
                    av_get_pix_fmt_name(q->parser->format));
