@@ -1084,6 +1084,7 @@ static int encode_frame(AVCodecContext *avctx, QSVEncContext *q,
             return ret;
         }
     }
+
     if (qsv_frame) {
         surf = qsv_frame->surface;
         enc_ctrl = &qsv_frame->enc_ctrl;
@@ -1103,7 +1104,7 @@ static int encode_frame(AVCodecContext *avctx, QSVEncContext *q,
     bs->Data      = new_pkt.data;
     bs->MaxLength = new_pkt.size;
 
-    if (q->set_encode_ctrl_cb) {
+    if ((NULL != qsv_frame) && q->set_encode_ctrl_cb) {
         q->set_encode_ctrl_cb(avctx, frame, &qsv_frame->enc_ctrl);
     }
 
@@ -1126,10 +1127,12 @@ static int encode_frame(AVCodecContext *avctx, QSVEncContext *q,
         av_freep(&sync);
         return (ret == MFX_ERR_MORE_DATA) ? 0 : ff_qsv_error(ret);
     }
-
-    if (ret == MFX_WRN_INCOMPATIBLE_VIDEO_PARAM && frame->interlaced_frame)
-        print_interlace_msg(avctx, q);
-
+    
+    if( NULL != frame ){
+        if (ret == MFX_WRN_INCOMPATIBLE_VIDEO_PARAM && frame->interlaced_frame)
+            print_interlace_msg(avctx, q);
+    }
+    
     if (*sync) {
         av_fifo_generic_write(q->async_fifo, &new_pkt, sizeof(new_pkt), NULL);
         av_fifo_generic_write(q->async_fifo, &sync,    sizeof(sync),    NULL);

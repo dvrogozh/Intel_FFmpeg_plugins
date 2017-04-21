@@ -443,6 +443,10 @@ static int alloc_internal_frame(AVHWFramesContext *ctx, mfxFrameAllocRequest *re
      * Allocate 1 more to store the type of these memids.
      */
     resp->mids = av_calloc(req->NumFrameSuggested + 1, sizeof(*resp->mids));
+    if(NULL == resp->mids){
+        return MFX_ERR_MEMORY_ALLOC;
+    }
+    
     if (i->FourCC == MFX_FOURCC_P8) {
         buf_size = FFALIGN(i->Width, 32) * FFALIGN(i->Height, 32) * 400LL / (16 * 16);
         for (resp->NumFrameActual = 0;
