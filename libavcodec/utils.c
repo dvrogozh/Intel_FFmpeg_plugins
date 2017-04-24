@@ -2302,7 +2302,7 @@ fail:
         }
 #endif
         if (picture->flags & AV_FRAME_FLAG_DISCARD) {
-            *got_picture_ptr = 0;
+            //*got_picture_ptr = 0;
         }
         if (*got_picture_ptr) {
             if (!avctx->refcounted_frames) {
