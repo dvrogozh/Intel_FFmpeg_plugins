@@ -380,12 +380,6 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
         q->param.mfx.FrameInfo = frames_hwctx->surfaces[0].Info;
     } else {
         q->param.mfx.FrameInfo.FourCC         = MFX_FOURCC_NV12;
-        q->param.mfx.FrameInfo.Width          = FFALIGN(avctx->width, q->width_align);
-        q->param.mfx.FrameInfo.Height         = FFALIGN(avctx->height, 32);
-        q->param.mfx.FrameInfo.CropX          = 0;
-        q->param.mfx.FrameInfo.CropY          = 0;
-        q->param.mfx.FrameInfo.CropW          = avctx->width;
-        q->param.mfx.FrameInfo.CropH          = avctx->height;
         q->param.mfx.FrameInfo.AspectRatioW   = avctx->sample_aspect_ratio.num;
         q->param.mfx.FrameInfo.AspectRatioH   = avctx->sample_aspect_ratio.den;
         q->param.mfx.FrameInfo.PicStruct      = MFX_PICSTRUCT_PROGRESSIVE;
@@ -396,9 +390,18 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
 
     if (avctx->flags & AV_CODEC_FLAG_INTERLACED_DCT) {
         q->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_FIELD_TFF;
+        q->height_align = 32;
     } else {
         q->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
+        q->height_align = 16;
     }
+
+    q->param.mfx.FrameInfo.Width          = FFALIGN(avctx->width,  q->width_align);
+    q->param.mfx.FrameInfo.Height         = FFALIGN(avctx->height, q->height_align);
+    q->param.mfx.FrameInfo.CropX          = 0;
+    q->param.mfx.FrameInfo.CropY          = 0;
+    q->param.mfx.FrameInfo.CropW          = avctx->width;
+    q->param.mfx.FrameInfo.CropH          = avctx->height;
 
     if (avctx->framerate.den > 0 && avctx->framerate.num > 0) {
         q->param.mfx.FrameInfo.FrameRateExtN = avctx->framerate.num;
