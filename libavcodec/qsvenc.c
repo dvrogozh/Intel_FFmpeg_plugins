@@ -404,6 +404,12 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
         q->param.mfx.FrameInfo.Height = frames_hwctx->surfaces[0].Info.Height;
     }
 
+    if (avctx->flags & AV_CODEC_FLAG_INTERLACED_DCT) {
+        q->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_FIELD_TFF;
+    } else {
+        q->param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
+    }
+
     if (avctx->framerate.den > 0 && avctx->framerate.num > 0) {
         q->param.mfx.FrameInfo.FrameRateExtN = avctx->framerate.num;
         q->param.mfx.FrameInfo.FrameRateExtD = avctx->framerate.den;

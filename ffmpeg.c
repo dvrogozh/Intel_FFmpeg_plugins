@@ -2445,8 +2445,10 @@ static int decode_video(InputStream *ist, AVPacket *pkt, int *got_output, int eo
     if (!*got_output || ret < 0)
         return ret;
 
-    if(ist->top_field_first>=0)
-        decoded_frame->top_field_first = ist->top_field_first;
+    if(ist->top_field_first>=0) {
+        decoded_frame->interlaced_frame  = 1;
+        decoded_frame->top_field_first   = ist->top_field_first;
+    }
 
     ist->frames_decoded++;
 
