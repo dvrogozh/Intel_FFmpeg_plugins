@@ -79,7 +79,13 @@ int qsv_init(AVCodecContext *s)
         frames_hwctx = frames_ctx->hwctx;
 
         frames_ctx->width             = s->coded_width;
-        frames_ctx->height            = s->coded_height;
+
+        //QSV must use full height to allocate surface if the input frame is interlaced
+	if(AV_FIELD_PROGRESSIVE == s->field_order)
+		frames_ctx->height        = s->coded_height;
+	else
+		frames_ctx->height        = s->coded_height * 2;
+
         frames_ctx->format            = AV_PIX_FMT_QSV;
         frames_ctx->sw_format         = s->sw_pix_fmt;
         frames_ctx->initial_pool_size = 0;
