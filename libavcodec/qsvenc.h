@@ -179,6 +179,7 @@ typedef struct QSVEncContext {
     int a53_cc;
     char *load_plugins;
     SetEncodeCtrlCB *set_encode_ctrl_cb;
+    int force_idr;
 } QSVEncContext;
 
 int ff_qsv_enc_init(AVCodecContext *avctx, QSVEncContext *q);

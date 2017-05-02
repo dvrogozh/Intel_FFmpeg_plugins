@@ -40,6 +40,9 @@
 #include "qsv_internal.h"
 #include "qsvenc.h"
 
+#define ASYNC_FIFO_ELEM_SIZE \
+    (sizeof(AVPacket) + sizeof(mfxSyncPoint*) + sizeof(mfxBitstream*))
+
 static const struct {
     mfxU16 profile;
     const char *name;
@@ -778,8 +781,7 @@ int ff_qsv_enc_init(AVCodecContext *avctx, QSVEncContext *q)
 
     q->param.AsyncDepth = q->async_depth;
 
-    q->async_fifo = av_fifo_alloc((1 + q->async_depth) *
-                                  (sizeof(AVPacket) + sizeof(mfxSyncPoint*) + sizeof(mfxBitstream*)));
+    q->async_fifo = av_fifo_alloc((1 + q->async_depth) * ASYNC_FIFO_ELEM_SIZE);
     if (!q->async_fifo)
         return AVERROR(ENOMEM);
 
@@ -1045,6 +1047,103 @@ static int encode_frame(AVCodecContext *avctx, QSVEncContext *q,
     if (qsv_frame) {
         surf = &qsv_frame->surface;
         enc_ctrl = &qsv_frame->enc_ctrl;
+
+        if (q->set_encode_ctrl_cb)
+            q->set_encode_ctrl_cb(avctx, frame, enc_ctrl);
+
+        /*
+         * Force key frames is only supported by H264 now.
+         */
+        if (avctx->codec_id == AV_CODEC_ID_H264 &&
+                frame->pict_type == AV_PICTURE_TYPE_I) {
+            mfxExtEncoderResetOption resetoption = {
+                .Header.BufferId = MFX_EXTBUFF_ENCODER_RESET_OPTION,
+                .Header.BufferSz = sizeof(resetoption),
+            };
+            mfxExtBuffer *extparam[4];
+
+            extparam[0] = (mfxExtBuffer *)&q->extco;
+            extparam[1] = (mfxExtBuffer *)&q->extco2;
+            extparam[2] = (mfxExtBuffer *)&q->extco3;
+            extparam[3] = (mfxExtBuffer *)&resetoption;
+            q->param.ExtParam = extparam;
+            q->param.NumExtParam = 4;
+
+            // Make sur we have the latest parameters
+            ret = MFXVideoENCODE_GetVideoParam(q->session, &q->param);
+            if (ret < 0)
+                av_log(avctx, AV_LOG_WARNING,
+                        "Error %d MFXVideoENCODE_GetVideoParam.\n", ret);
+
+            // Force a new GOP
+            resetoption.StartNewSequence = MFX_CODINGOPTION_ON;
+
+            // Drain the cache
+            while (1) {
+                sync = av_mallocz(sizeof(*sync));
+                if (!sync)
+                    return AVERROR(ENOMEM);
+
+                ret = av_new_packet(&new_pkt, q->packet_size);
+                if (ret < 0) {
+                    av_log(avctx, AV_LOG_ERROR,
+                            "Error allocating the output packet\n");
+                    return ret;
+                }
+
+                bs = av_mallocz(sizeof(*bs));
+                if (!bs) {
+                    av_packet_unref(&new_pkt);
+                    return AVERROR(ENOMEM);
+                }
+                bs->Data      = new_pkt.data;
+                bs->MaxLength = new_pkt.size;
+
+                while ((ret=MFXVideoENCODE_EncodeFrameAsync(q->session, NULL, NULL, bs, sync)) == MFX_WRN_DEVICE_BUSY)
+                    av_usleep(500);
+
+                if (ret < 0) {
+                    av_packet_unref(&new_pkt);
+                    av_freep(&bs);
+                    av_freep(&sync);
+                    if (ret == MFX_ERR_MORE_DATA)
+                        break;
+                    return ff_qsv_print_error(avctx, ret, "Error during flushing for IDR");;
+                }
+
+                if (*sync) {
+                    MFXVideoCORE_SyncOperation(q->session, *sync, 60000);
+                    if (ASYNC_FIFO_ELEM_SIZE > av_fifo_space(q->async_fifo)) {
+                        ret = av_fifo_grow(q->async_fifo, ASYNC_FIFO_ELEM_SIZE);
+                        if (ret < 0) {
+                            av_packet_unref(&new_pkt);
+                            av_freep(&bs);
+                            av_freep(&sync);
+                            return AVERROR(ENOMEM);
+                        }
+                    }
+
+                    av_fifo_generic_write(q->async_fifo, &new_pkt, sizeof(new_pkt), NULL);
+                    av_fifo_generic_write(q->async_fifo, &sync,    sizeof(sync),    NULL);
+                    av_fifo_generic_write(q->async_fifo, &bs,      sizeof(bs),    NULL);
+                } else {
+                    av_packet_unref(&new_pkt);
+                    av_freep(&bs);
+                    av_freep(&sync);
+                }
+            }
+
+            ret = MFXVideoENCODE_Reset(q->session, &q->param);
+            if (ret > 0) {
+                ff_qsv_print_warning(avctx, ret, "Warning during reset");
+            } else if (ret < 0)
+                return ff_qsv_print_error(avctx, ret, "Error during reset");;
+
+            enc_ctrl->FrameType = MFX_FRAMETYPE_I | MFX_FRAMETYPE_REF;
+            if (q->force_idr)
+                enc_ctrl->FrameType |= MFX_FRAMETYPE_IDR;
+        } else
+            enc_ctrl->FrameType = MFX_FRAMETYPE_UNKNOWN;
     }
 
     ret = av_new_packet(&new_pkt, q->packet_size);
@@ -1060,10 +1159,6 @@ static int encode_frame(AVCodecContext *avctx, QSVEncContext *q,
     }
     bs->Data      = new_pkt.data;
     bs->MaxLength = new_pkt.size;
-
-    if ((NULL != qsv_frame) && q->set_encode_ctrl_cb) {
-        q->set_encode_ctrl_cb(avctx, frame, &qsv_frame->enc_ctrl);
-    }
 
     sync = av_mallocz(sizeof(*sync));
     if (!sync) {
@@ -1088,13 +1183,22 @@ static int encode_frame(AVCodecContext *avctx, QSVEncContext *q,
         return (ret == MFX_ERR_MORE_DATA) ?
                0 : ff_qsv_print_error(avctx, ret, "Error during encoding");
     }
-    
-    if( NULL != frame ){
+
+    if (NULL != frame) {
         if (ret == MFX_WRN_INCOMPATIBLE_VIDEO_PARAM && frame->interlaced_frame)
             print_interlace_msg(avctx, q);
     }
-    
+
     if (*sync) {
+        if (ASYNC_FIFO_ELEM_SIZE > av_fifo_space(q->async_fifo)) {
+            ret = av_fifo_grow(q->async_fifo, ASYNC_FIFO_ELEM_SIZE);
+            if (ret < 0) {
+                av_packet_unref(&new_pkt);
+                av_freep(&bs);
+                av_freep(&sync);
+                return AVERROR(ENOMEM);
+            }
+        }
         av_fifo_generic_write(q->async_fifo, &new_pkt, sizeof(new_pkt), NULL);
         av_fifo_generic_write(q->async_fifo, &sync,    sizeof(sync),    NULL);
         av_fifo_generic_write(q->async_fifo, &bs,      sizeof(bs),    NULL);
