@@ -62,6 +62,8 @@ int qsv_init(AVCodecContext *s)
     InputStream *ist = s->opaque;
     AVHWFramesContext *frames_ctx;
     AVQSVFramesContext *frames_hwctx;
+    mfxVersion ver = { {1, 1} };
+    mfxSession session;
     int ret;
 
     if (!hw_device_ctx) {
@@ -69,6 +71,20 @@ int qsv_init(AVCodecContext *s)
         if (ret < 0)
             return ret;
     }
+
+    /*
+     *Query MSDK version. Decoder's behavior is different between
+     * version older than 1.19 and 1.19 later.
+     */
+    ret = MFXInit(MFX_IMPL_AUTO, &ver, &session);
+    if (ret < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Creating session failed.\n");
+        return ret;
+    }
+    ret = MFXQueryVersion(session, &ver);
+    if (ret < 0)
+        return ret;
+    MFXClose(session);
 
     if(!ist->hw_frames_ctx) {
         ist->hw_frames_ctx = av_hwframe_ctx_alloc(hw_device_ctx);
@@ -90,6 +106,15 @@ int qsv_init(AVCodecContext *s)
         frames_ctx->sw_format         = s->sw_pix_fmt;
         frames_ctx->initial_pool_size = 0;
         frames_hwctx->frame_type      = MFX_MEMTYPE_VIDEO_MEMORY_DECODER_TARGET;
+
+    if (frames_ctx->initial_pool_size == 0) {
+        /*
+         *For version older than 1.19, we pre-allocate enough surfaces
+         *for decoder; for others, we allocate surfaces dynamically.
+         */
+        if (ver.Major <= 1 && ver.Minor <= 19)
+            frames_ctx->initial_pool_size = 64;
+    }
 
         ret = av_hwframe_ctx_init(ist->hw_frames_ctx);
         if (ret < 0) {
