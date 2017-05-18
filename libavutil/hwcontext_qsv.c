@@ -453,7 +453,7 @@ static int qsv_init_internal_session(AVHWFramesContext *ctx,
     par.vpp.Out = par.vpp.In;
 
     err = MFXVideoVPP_Init(*session, &par);
-    if (err != MFX_ERR_NONE) {
+    if (err < MFX_ERR_NONE) {
         av_log(ctx, AV_LOG_VERBOSE, "Error opening the internal VPP session."
                "Surface upload/download will not be possible\n");
         MFXClose(*session);
