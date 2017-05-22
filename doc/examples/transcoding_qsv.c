@@ -106,6 +106,21 @@ static enum AVPixelFormat get_format(AVCodecContext *s,
     int ret;
     AVHWFramesContext *frames_ctx;
     AVQSVFramesContext *frames_hwctx;
+    mfxVersion ver = { {1, 1} };
+    mfxSession session;
+    /*
+     * Query MSDK version. Decoder's behavior is different between
+     * version older than 1.19 and 1.19.
+     */
+    ret = MFXInit(MFX_IMPL_AUTO, &ver, &session);
+    if (ret < 0) {
+        av_log(NULL, AV_LOG_ERROR, "Creating session failed.\n");
+        return ret;
+    }
+    ret = MFXQueryVersion(session, &ver);
+    if (ret < 0)
+        return ret;
+    MFXClose(session);
 
     for (p = pix_fmts; *p != -1; p++) {
         const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(*p);
@@ -126,6 +141,14 @@ static enum AVPixelFormat get_format(AVCodecContext *s,
             frames_ctx->format            = AV_PIX_FMT_QSV;
             frames_ctx->sw_format         = s->sw_pix_fmt;
             frames_ctx->initial_pool_size = 0;
+            if (frames_ctx->initial_pool_size == 0) {
+                /*
+                 *For version older than 1.19, we pre-allocate enough surfaces
+                 *for decoder; for 1.19, we allocate surfaces dynamically.
+                 */
+                if (ver.Major <= 1 && ver.Minor < 19)
+                    frames_ctx->initial_pool_size = 64;
+            }
             frames_hwctx->frame_type      = MFX_MEMTYPE_VIDEO_MEMORY_DECODER_TARGET;
 
             ret = av_hwframe_ctx_init(s->hw_frames_ctx);
@@ -363,6 +386,13 @@ static int init_filter(FilteringContext* fctx, AVCodecContext *dec_ctx, const ch
                     &inputs, &outputs, NULL)) < 0)
         goto end;
 
+    /* FIXME: a workaroud for video memory which should be fixed by coming patches. */
+    if (g_device) {
+        int i;
+        for (i = 0; i < filter_graph->nb_filters; i++)
+            filter_graph->filters[i]->hw_device_ctx = av_buffer_ref(g_device);
+    }
+
     if ((ret = avfilter_graph_config(filter_graph, NULL)) < 0)
         goto end;
 
@@ -502,6 +532,7 @@ int main(int argc, char **argv)
     av_register_all();
     avfilter_register_all();
     avcodec_register_all();
+    av_log_set_level(AV_LOG_INFO);
 
     ret = av_hwdevice_ctx_create(&g_device, AV_HWDEVICE_TYPE_QSV,
                 "/dev/dri/render128", NULL, 0);
