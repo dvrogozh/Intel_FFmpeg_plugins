@@ -426,6 +426,9 @@ typedef struct OutputStream {
     /* dts of the last packet sent to the muxer */
     int64_t last_mux_dts;
 
+    // the timebase of the packets sent to the muxer
+    AVRational mux_timebase;
+
     int                    nb_bitstream_filters;
     uint8_t                  *bsf_extradata_updated;
     AVBSFContext            **bsf_ctx;
