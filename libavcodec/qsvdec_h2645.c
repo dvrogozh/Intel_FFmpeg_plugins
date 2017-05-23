@@ -114,7 +114,7 @@ static av_cold int qsv_decode_init(AVCodecContext *avctx)
         goto fail;
     }
 
-    return 0;
+    return ff_qsv_decode_preinit(avctx, &s->qsv);
 fail:
     qsv_decode_close(avctx);
     return ret;
