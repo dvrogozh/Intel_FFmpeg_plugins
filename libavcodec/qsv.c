@@ -20,6 +20,7 @@
 
 #include <mfx/mfxvideo.h>
 #include <mfx/mfxplugin.h>
+#include <mfx/mfxjpeg.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -47,6 +48,8 @@ int ff_qsv_codec_id_to_mfx(enum AVCodecID codec_id)
         return MFX_CODEC_MPEG2;
     case AV_CODEC_ID_VC1:
         return MFX_CODEC_VC1;
+    case AV_CODEC_ID_MJPEG:
+        return MFX_CODEC_JPEG;
     default:
         break;
     }

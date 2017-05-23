@@ -177,6 +177,9 @@ typedef struct QSVEncContext {
     unsigned short enable_global_motion_bias;
     unsigned short mv_cost_sf;
 
+    // options for MJPEG
+    unsigned short quality;
+
     AVBufferRef *out_frames_ref;
 
     int a53_cc;
