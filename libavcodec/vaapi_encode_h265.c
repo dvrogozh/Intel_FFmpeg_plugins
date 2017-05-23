@@ -1068,7 +1068,7 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
 #else
     // Workaround, VPG driver only supports GPB frame instead P frame
     case PICTURE_TYPE_P:
-        vslice->slice_type = B_SLICE;
+        vslice->slice_type = HEVC_SLICE_B;
         break;
 #endif
     case PICTURE_TYPE_B:
