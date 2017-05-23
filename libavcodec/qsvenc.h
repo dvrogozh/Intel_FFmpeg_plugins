@@ -176,6 +176,9 @@ typedef struct QSVEncContext {
     unsigned short enable_global_motion_bias;
     unsigned short mv_cost_sf;
 
+    // options for MJPEG
+    unsigned short quality;
+
     int a53_cc;
     char *load_plugins;
     SetEncodeCtrlCB *set_encode_ctrl_cb;

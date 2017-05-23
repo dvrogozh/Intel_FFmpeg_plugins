@@ -421,6 +421,15 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
         q->param.mfx.FrameInfo.FrameRateExtD  = avctx->time_base.num;
     }
 
+    if (AV_CODEC_ID_MJPEG == avctx->codec_id) {
+        av_log(avctx, AV_LOG_DEBUG, " Init codec is QSV JPEG encode \n");
+        q->param.mfx.Interleaved          = 1;
+        q->param.mfx.Quality              = q->quality;;
+        q->param.mfx.RestartInterval      = 0;
+
+        return 0;
+    }
+
     ret = select_rc_mode(avctx, q);
     if (ret < 0)
         return ret;
@@ -666,6 +675,10 @@ static int qsv_retrieve_enc_params(AVCodecContext *avctx, QSVEncContext *q)
                                   "Error calling GetVideoParam");
 
     q->packet_size = q->param.mfx.BufferSizeInKB * 1000;
+
+    if (0 == q->packet_size) {
+        q->packet_size = q->param.mfx.FrameInfo.Height * q->param.mfx.FrameInfo.Width * 4;
+    }
 
     if (!extradata.SPSBufSize || (need_pps && !extradata.PPSBufSize)) {
         av_log(avctx, AV_LOG_ERROR, "No extradata returned from libmfx.\n");
