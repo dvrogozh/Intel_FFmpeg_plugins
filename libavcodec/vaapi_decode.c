@@ -195,8 +195,10 @@ int ff_vaapi_decode_issue(AVCodecContext *avctx,
             goto fail_at_end;
     }
 
+#ifndef VPG_DRIVER
     if (ctx->hwctx->driver_quirks &
         AV_VAAPI_DRIVER_QUIRK_RENDER_PARAM_BUFFERS)
+#endif
         ff_vaapi_decode_destroy_buffers(avctx, pic);
 
     pic->nb_param_buffers = 0;

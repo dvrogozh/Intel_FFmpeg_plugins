@@ -40,9 +40,6 @@
 #include "mem.h"
 #include "pixdesc.h"
 #include "pixfmt.h"
-#include "fastcopy.h"
-
-extern void ff_lock_unlock_mem_from_uswc();
 
 typedef struct VAAPIDevicePriv {
 #if HAVE_VAAPI_X11
@@ -397,8 +394,6 @@ static int vaapi_device_init(AVHWDeviceContext *hwdev)
         }
     }
 
-    av_fastcopy_uswc_init();
-
     av_free(image_list);
     return 0;
 fail:
@@ -716,55 +711,6 @@ static void vaapi_unmap_frame(AVHWFramesContext *hwfc,
     av_free(map);
 }
 
-static void *vaapi_copy_from_uswc(void *dst, void *src, size_t size)
-{
-    char aligned;
-    int remain, i, round;
-    uint8_t *pdst, *psrc;
-    FastCopyAccel *fc = NULL;
-
-    if (dst == NULL || src == NULL || size == 0) {
-        return NULL;
-    }
-
-    fc = av_fastcopy_uswc_get_fn();
-
-    // If doesn't support instruction acceleration,  We would like to
-    // choose memcpy.
-    if (fc == NULL || fc->fastcopy_fn == NULL) {
-        return memcpy(dst, src, size);
-    }
-
-    aligned = (((size_t) dst) | ((size_t) src)) & fc->align_bits;
-
-    if (aligned != 0) {
-        return NULL;
-    }
-
-    pdst = (uint8_t *) dst;
-    psrc = (uint8_t *) src;
-    remain = size & (fc->register_bits - 1);
-    round = size >> (fc->offset_bits);
-
-    ff_lock_unlock_mem_from_uswc();
-
-    for (i = 0; i < round; i++) {
-        fc->fastcopy_fn(pdst, psrc, fc->register_bits);
-        psrc += fc->register_bits;
-        pdst += fc->register_bits;
-    }
-
-    ff_lock_unlock_mem_from_uswc();
-
-    // We would like to use memcpy to copy a small number of bytes
-    // that are not aligned
-    if (remain > 0) {
-        memcpy(pdst, psrc, remain);
-    }
-
-    return dst;
-}
-
 static int vaapi_map_frame(AVHWFramesContext *hwfc,
                            AVFrame *dst, const AVFrame *src, int flags)
 {
@@ -884,26 +830,9 @@ static int vaapi_map_frame(AVHWFramesContext *hwfc,
     dst->width  = src->width;
     dst->height = src->height;
 
-    plane_size = map->image.data_size;
-    if (flags != AV_HWFRAME_MAP_WRITE) {
-        uint8_t *addr_dst;
-        dst->opaque = av_malloc(FFMAX(map->image.width * map->image.height * 3, plane_size));
-
-        if (vaapi_copy_from_uswc((void *)dst->opaque, (void *)address, plane_size) == NULL)
-            addr_dst = address;
-        else
-            addr_dst = dst->opaque;
-
-        for (i = 0; i < map->image.num_planes; i++) {
-            dst->data[i] = addr_dst + map->image.offsets[i];
-            dst->linesize[i] = map->image.pitches[i];
-            dst->data[i] += hwfc->top_offset[i] * dst->linesize[i] + hwfc->left_offset[i];
-        }
-    } else {
-        for (i = 0; i < map->image.num_planes; i++) {
-            dst->data[i] = (uint8_t*)address + map->image.offsets[i];
-            dst->linesize[i] = map->image.pitches[i];
-        }
+    for (i = 0; i < map->image.num_planes; i++) {
+        dst->data[i] = (uint8_t*)address + map->image.offsets[i];
+        dst->linesize[i] = map->image.pitches[i];
     }
     if (
 #ifdef VA_FOURCC_YV16
