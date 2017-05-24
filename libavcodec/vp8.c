@@ -46,6 +46,8 @@
 #define VPX(vp7, f) vp8_ ## f
 #endif
 
+static void vp8_release_frame(VP8Context *s, VP8Frame *f);
+
 static void free_buffers(VP8Context *s)
 {
     int i;
@@ -76,13 +78,29 @@ static int vp8_alloc_frame(VP8Context *s, VP8Frame *f, int ref)
         ff_thread_release_buffer(s->avctx, &f->tf);
         return AVERROR(ENOMEM);
     }
+
+    if (s->avctx->hwaccel) {
+        const AVHWAccel *hwaccel = s->avctx->hwaccel;
+        av_assert0(!f->hwaccel_picture_private);
+        if (hwaccel->frame_priv_data_size) {
+            f->hwaccel_priv_buf = av_buffer_allocz(hwaccel->frame_priv_data_size);
+            if (!f->hwaccel_priv_buf)
+                goto fail;
+            f->hwaccel_picture_private = f->hwaccel_priv_buf->data;
+        }
+    }
     return 0;
+fail:
+    vp8_release_frame(s, f);
+    return AVERROR(ENOMEM);
 }
 
 static void vp8_release_frame(VP8Context *s, VP8Frame *f)
 {
     av_buffer_unref(&f->seg_map);
     ff_thread_release_buffer(s->avctx, &f->tf);
+    av_buffer_unref(&f->hwaccel_priv_buf);
+    f->hwaccel_picture_private = NULL;
 }
 
 #if CONFIG_VP8_DECODER
@@ -99,8 +117,17 @@ static int vp8_ref_frame(VP8Context *s, VP8Frame *dst, VP8Frame *src)
         vp8_release_frame(s, dst);
         return AVERROR(ENOMEM);
     }
+    if (src->hwaccel_picture_private) {
+        dst->hwaccel_priv_buf = av_buffer_ref(src->hwaccel_priv_buf);
+        if (!dst->hwaccel_priv_buf)
+            goto fail;
+        dst->hwaccel_picture_private = dst->hwaccel_priv_buf->data;
+    }
 
     return 0;
+fail:
+    vp8_release_frame(s, dst);
+    return AVERROR(ENOMEM);
 }
 #endif /* CONFIG_VP8_DECODER */
 
@@ -218,9 +245,8 @@ static void parse_segment_info(VP8Context *s)
     int i;
 
     s->segmentation.update_map = vp8_rac_get(c);
-    s->segmentation.update_feature_data = vp8_rac_get(c);
 
-    if (s->segmentation.update_feature_data) { // update segment feature data
+    if (vp8_rac_get(c)) { // update segment feature data
         s->segmentation.absolute_vals = vp8_rac_get(c);
 
         for (i = 0; i < 4; i++)
@@ -283,6 +309,7 @@ static int setup_partitions(VP8Context *s, const uint8_t *buf, int buf_size)
         buf      += size;
         buf_size -= size;
     }
+
     s->coeff_partition_size[i] = buf_size;
     return ff_vp56_init_range_decoder(&s->coeff_partition[i], buf, buf_size);
 }
@@ -736,11 +763,9 @@ static int vp8_decode_frame_header(VP8Context *s, const uint8_t *buf, int buf_si
     s->filter.level     = vp8_rac_get_uint(c, 6);
     s->filter.sharpness = vp8_rac_get_uint(c, 3);
 
-    if ((s->lf_delta.enabled = vp8_rac_get(c))) {
-        s->lf_delta.update = vp8_rac_get(c);
-        if (s->lf_delta.update)
+    if ((s->lf_delta.enabled = vp8_rac_get(c)))
+        if (vp8_rac_get(c))
             update_lf_deltas(s);
-    }
 
     if (setup_partitions(s, buf, buf_size)) {
         av_log(s->avctx, AV_LOG_ERROR, "Invalid partitions\n");
@@ -2568,8 +2593,6 @@ int vp78_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     enum AVDiscard skip_thresh;
     VP8Frame *av_uninit(curframe), *prev_frame;
 
-    av_assert0(avctx->pix_fmt == AV_PIX_FMT_YUVA420P || avctx->pix_fmt == AV_PIX_FMT_YUV420P);
-
     if (is_vp7)
         ret = vp7_decode_frame_header(s, avpkt->data, avpkt->size);
     else
@@ -2668,47 +2691,41 @@ int vp78_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     if (avctx->codec->update_thread_context)
         ff_thread_finish_setup(avctx);
 
+    s->linesize   = curframe->tf.f->linesize[0];
+    s->uvlinesize = curframe->tf.f->linesize[1];
+
+    memset(s->top_nnz, 0, s->mb_width * sizeof(*s->top_nnz));
+    /* Zero macroblock structures for top/top-left prediction
+     * from outside the frame. */
+    if (!s->mb_layout)
+        memset(s->macroblocks + s->mb_height * 2 - 1, 0,
+               (s->mb_width + 1) * sizeof(*s->macroblocks));
+    if (!s->mb_layout && s->keyframe)
+        memset(s->intra4x4_pred_mode_top, DC_PRED, s->mb_width * 4);
+
+    memset(s->ref_count, 0, sizeof(s->ref_count));
+
     if (avctx->hwaccel) {
-        ret = avctx->hwaccel->start_frame(avctx, avpkt->data, avpkt->size);
+        s->curframe   = curframe;
+        ret = avctx->hwaccel->start_frame(avctx, NULL, 0);
         if (ret < 0)
-            goto err;
+            return ret;
         ret = avctx->hwaccel->decode_slice(avctx, avpkt->data, avpkt->size);
         if (ret < 0)
-            goto err;
+            return ret;
         ret = avctx->hwaccel->end_frame(avctx);
-        if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "end_frame error");
-            goto err;
-        }
-    } else {
-        s->linesize   = curframe->tf.f->linesize[0];
-        s->uvlinesize = curframe->tf.f->linesize[1];
-
-        memset(s->top_nnz, 0, s->mb_width * sizeof(*s->top_nnz));
-        /* Zero macroblock structures for top/top-left prediction
-         * from outside the frame. */
-        if (!s->mb_layout)
-            memset(s->macroblocks + s->mb_height * 2 - 1, 0,
-                (s->mb_width + 1) * sizeof(*s->macroblocks));
-        if (!s->mb_layout && s->keyframe)
-            memset(s->intra4x4_pred_mode_top, DC_PRED, s->mb_width * 4);
-
-        memset(s->ref_count, 0, sizeof(s->ref_count));
-
-        if (s->mb_layout == 1) {
-            // Make sure the previous frame has read its segmentation map,
-            // if we re-use the same map.
-            if (prev_frame && s->segmentation.enabled &&
-                !s->segmentation.update_map)
-                ff_thread_await_progress(&prev_frame->tf, 1, 0);
-            if (is_vp7)
-                vp7_decode_mv_mb_modes(avctx, curframe, prev_frame);
-            else
-                vp8_decode_mv_mb_modes(avctx, curframe, prev_frame);
-        }
-
-        if (avctx->active_thread_type == FF_THREAD_FRAME)
-            num_jobs = 1;
+        if (ret < 0)
+            return ret;
+        goto finished;
+    }
+    if (s->mb_layout == 1) {
+        // Make sure the previous frame has read its segmentation map,
+        // if we re-use the same map.
+        if (prev_frame && s->segmentation.enabled &&
+            !s->segmentation.update_map)
+            ff_thread_await_progress(&prev_frame->tf, 1, 0);
+        if (is_vp7)
+            vp7_decode_mv_mb_modes(avctx, curframe, prev_frame);
         else
             vp8_decode_mv_mb_modes(avctx, curframe, prev_frame);
     }
@@ -2730,9 +2747,10 @@ int vp78_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
     if (is_vp7)
         avctx->execute2(avctx, vp7_decode_mb_row_sliced, s->thread_data, NULL,
                         num_jobs);
-    else
-        avctx->execute2(avctx, vp8_decode_mb_row_sliced, s->thread_data, NULL,
-                        num_jobs);
+        else
+            avctx->execute2(avctx, vp8_decode_mb_row_sliced, s->thread_data, NULL,
+                            num_jobs);
+finished:
     ff_thread_report_progress(&curframe->tf, INT_MAX, 0);
     memcpy(&s->framep[0], &s->next_framep[0], sizeof(s->framep[0]) * 4);
 

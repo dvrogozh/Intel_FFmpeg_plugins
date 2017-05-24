@@ -226,4 +226,5 @@ AVHWAccel ff_vp8_vaapi_hwaccel = {
     .init                 = &ff_vaapi_decode_init,
     .uninit               = &ff_vaapi_decode_uninit,
     .priv_data_size       = sizeof(VAAPIDecodeContext),
+    .caps_internal        = HWACCEL_CAP_ASYNC_SAFE,
 };
