@@ -831,7 +831,7 @@ static int vaapi_map_frame(AVHWFramesContext *hwfc,
     dst->height = src->height;
 
     plane_size = map->image.data_size;
-    if (flags != VAAPI_MAP_WRITE) {
+    if (flags != AV_HWFRAME_MAP_WRITE) {
         uint8_t *addr_dst;
         dst->opaque = av_malloc(FFMAX(map->image.width * map->image.height * 3, plane_size));
 
