@@ -99,7 +99,20 @@ typedef struct VAAPIEncodePicture {
     int          slice_mod_mbs;
     int          last_mb_index;
 #ifdef VPG_DRIVER
+    unsigned int mini_gop_cnt;
+    unsigned int frame_num;
+    // only be set for pyramid-b B frames
+    int          b_frame_ref_flag;
+    unsigned int ref_list_mode[2 * MAX_PICTURE_REFERENCES][2];
+    unsigned int adaptive_ref_pic_marking[2][2];
     int          ref_count;
+    int          bottom_field;
+    int          second_field_flag;
+    int          second_field_be_ref;
+    struct VAAPIEncodePicture *second_field;
+    // only be used for pyramid-b B frames now
+    int          nb_dpbs;
+    struct VAAPIEncodePicture *dpbs[MAX_PICTURE_REFERENCES];
 #endif
     VAAPIEncodeSlice **slices;
 } VAAPIEncodePicture;
@@ -226,6 +239,12 @@ typedef struct VAAPIEncodeContext {
     struct VAAPIEncodePicture *references[MAX_PICTURE_REFERENCES];
     int ref_nr;
     int max_ref_nr;
+    int support_rir;
+    int support_roi;
+    int support_interlaced;
+    int support_trellis;
+    unsigned int current_frame_num;
+    int bipyramid;
 #endif
     // Codec-local options are allocated to follow this structure in
     // memory (in the AVCodec definition, set priv_data_size to
