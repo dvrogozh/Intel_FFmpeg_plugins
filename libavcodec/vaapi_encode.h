@@ -233,7 +233,6 @@ typedef struct VAAPIEncodeContext {
     int i_counter;
     int p_counter;
     int end_of_stream;
-    int force_idr_frame;
 
 #ifdef VPG_DRIVER
     // reference frames

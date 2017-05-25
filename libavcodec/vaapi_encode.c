@@ -1340,7 +1340,7 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
     int j;
 #endif
 
-    if (ctx->force_idr_frame) {
+    if (ctx->force_idr) {
         vaapi_encode_mangle_end(avctx);
     } else {
         for (pic = ctx->pic_start; pic; pic = pic->next) {
@@ -1397,8 +1397,8 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
         }
     }
 #endif
-    if (ctx->p_per_i == 0 || ctx->p_counter == ctx->p_per_i || ctx->force_idr_frame == 1) {
-        if (ctx->force_idr_frame == 1 || ctx->i_per_idr == 0 || ctx->i_counter == ctx->i_per_idr) {
+    if (ctx->p_per_i == 0 || ctx->p_counter == ctx->p_per_i || ctx->force_idr) {
+        if (ctx->force_idr == 1 || ctx->i_per_idr == 0 || ctx->i_counter == ctx->i_per_idr) {
             pic->type = PICTURE_TYPE_IDR;
             ctx->i_counter = 0;
 #ifdef VPG_DRIVER
@@ -1421,7 +1421,7 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
             }
 #endif
         }
-        ctx->force_idr_frame = 0;
+        ctx->force_idr = 0;
         ctx->p_counter = 0;
     } else {
         pic->type = PICTURE_TYPE_P;
@@ -1519,10 +1519,6 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
                 pic->encode_order = ctx->input_order + i + 1;
 #endif
         }
-
-        av_assert0(ctx->pic_end);
-        ctx->pic_end->next = start;
-        ctx->pic_end = end;
     }
 
 #ifdef VPG_DRIVER
@@ -2228,20 +2224,20 @@ static av_cold int vaapi_encode_config_attributes(AVCodecContext *avctx)
             };
             break;
         case VAConfigAttribRateControl:
-#ifdef VPG_DRIVER
             // Hack for backward compatibility: CBR was the only
             // usable RC mode for a long time, so old drivers will
             // only have it.  Normal default options may now choose
             // VBR and then fail, however, so override it here with
             // CBR if that is the only supported mode.
+#ifdef VPG_DRIVER
             if (ctx->va_rc_mode == VA_RC_VBR &&
                 !(attr[i].value & VA_RC_VBR) &&
-                (attr[i].value & VA_RC_CBR) &&
+                (attr[i].value & VA_RC_CBR)  &&
                 ctx->va_profile != VAProfileJPEGBaseline) {
 #else
             if (ctx->va_rc_mode == VA_RC_VBR &&
-                            !(attr[i].value & VA_RC_VBR) &&
-                            (attr[i].value & VA_RC_CBR)) {
+                !(attr[i].value & VA_RC_VBR) &&
+                (attr[i].value & VA_RC_CBR)) {
 #endif
                 av_log(avctx, AV_LOG_WARNING, "VBR rate control is "
                        "not supported with this driver version; "
@@ -2342,7 +2338,6 @@ static av_cold int vaapi_encode_init_rate_control(AVCodecContext *avctx)
     int rc_window_size;
     int hrd_buffer_size;
     int hrd_initial_buffer_fullness;
-    int fr_num, fr_den;
 
     if (avctx->bit_rate > INT32_MAX) {
         av_log(avctx, AV_LOG_ERROR, "Target bitrate of 2^31 bps or "
@@ -2402,23 +2397,7 @@ static av_cold int vaapi_encode_init_rate_control(AVCodecContext *avctx)
     ctx->global_params_size[ctx->nb_global_params++] =
         sizeof(ctx->hrd_params);
 
-    if (avctx->framerate.num > 0 && avctx->framerate.den > 0)
-        av_reduce(&fr_num, &fr_den,
-                  avctx->framerate.num, avctx->framerate.den, 65535);
-    else
-        av_reduce(&fr_num, &fr_den,
-                  avctx->time_base.den, avctx->time_base.num, 65535);
-
-    ctx->fr_params.misc.type = VAEncMiscParameterTypeFrameRate;
-    ctx->fr_params.fr.framerate = (unsigned int)fr_den << 16 | fr_num;
-
 #if VA_CHECK_VERSION(0, 40, 0)
-    ctx->global_params[ctx->nb_global_params] =
-        &ctx->fr_params.misc;
-    ctx->global_params_size[ctx->nb_global_params++] =
-        sizeof(ctx->fr_params);
-#endif
-
     ctx->fr_params.misc.type = VAEncMiscParameterTypeFrameRate;
     if (avctx->framerate.num > 0 && avctx->framerate.den > 0) {
         ctx->fr_params.fr.framerate = 100 * avctx->framerate.num / avctx->framerate.den;
@@ -2429,7 +2408,7 @@ static av_cold int vaapi_encode_init_rate_control(AVCodecContext *avctx)
         &ctx->fr_params.misc;
     ctx->global_params_size[ctx->nb_global_params++] =
         sizeof(ctx->fr_params);
-
+#endif
     return 0;
 }
 
