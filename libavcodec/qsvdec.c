@@ -123,7 +123,7 @@ static int qsv_init_session(AVCodecContext *avctx, QSVContext *q, mfxSession ses
                 return ret;
         }
     } else {
-        if (!q->internal_session) {
+        if (!q->session) {
             ret = qsv_init_internal_session(avctx, &q->session, q,
                                                q->load_plugins);
             if (ret < 0)
@@ -139,13 +139,12 @@ static int qsv_init_session(AVCodecContext *avctx, QSVContext *q, mfxSession ses
     return 0;
 }
 
-static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q, AVPacket *avpkt)
+static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q, mfxBitstream *bs)
 {
     const AVPixFmtDescriptor *desc;
     mfxSession session = NULL;
     int iopattern = 0;
     mfxVideoParam param = { 0 };
-    mfxBitstream bs   = { { { 0 } } };
     int ret;
 
     desc = av_pix_fmt_desc_get(avctx->sw_pix_fmt);
@@ -189,14 +188,6 @@ static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q, AVPacket *avpkt
         return ret;
     }
 
-    if (avpkt->size) {
-        bs.Data       = avpkt->data;
-        bs.DataLength = avpkt->size;
-        bs.MaxLength  = bs.DataLength;
-        bs.TimeStamp  = avpkt->pts;
-    } else
-        return AVERROR_INVALIDDATA;
-
     ret = ff_qsv_codec_id_to_mfx(avctx->codec_id);
     if (ret < 0) {
         av_log(avctx, AV_LOG_ERROR, "Unsupported codec_id %08x\n", avctx->codec_id);
@@ -205,9 +196,9 @@ static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q, AVPacket *avpkt
 
     param.mfx.CodecId = ret;
 
-    ret = MFXVideoDECODE_DecodeHeader(q->session, &bs, &param);
+    ret = MFXVideoDECODE_DecodeHeader(q->session, bs, &param);
     if (MFX_ERR_MORE_DATA==ret) {
-        return avpkt->size;
+        return bs->DataOffset;
     } else if (ret < 0) {
         av_log(avctx, AV_LOG_ERROR, "Decode header error %d\n", ret);
         return ff_qsv_error(ret);
@@ -238,7 +229,6 @@ static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q, AVPacket *avpkt
     avctx->height       = param.mfx.FrameInfo.CropH;
     avctx->coded_width  = param.mfx.FrameInfo.CropW;
     avctx->coded_height = param.mfx.FrameInfo.CropH;
-    avctx->field_order  = param.mfx.FrameInfo.PicStruct;
     avctx->level        = param.mfx.CodecProfile;
     avctx->profile      = param.mfx.CodecLevel;
 #endif
@@ -344,21 +334,13 @@ static QSVFrame *find_frame(QSVContext *q, mfxFrameSurface1 *surf)
 
 static int qsv_decode(AVCodecContext *avctx, QSVContext *q,
                       AVFrame *frame, int *got_frame,
-                      AVPacket *avpkt)
+                      mfxBitstream *bs)
 {
     QSVFrame *out_frame;
     mfxFrameSurface1 *insurf;
     mfxFrameSurface1 *outsurf;
     mfxSyncPoint *sync;
-    mfxBitstream bs = { { { 0 } } };
     int ret;
-
-    if (avpkt->size) {
-        bs.Data       = avpkt->data;
-        bs.DataLength = avpkt->size;
-        bs.MaxLength  = bs.DataLength;
-        bs.TimeStamp  = avpkt->pts;
-    }
 
     sync = av_mallocz(sizeof(*sync));
     if (!sync) {
@@ -373,12 +355,17 @@ static int qsv_decode(AVCodecContext *avctx, QSVContext *q,
             return ret;
         }
 
-        ret = MFXVideoDECODE_DecodeFrameAsync(q->session, avpkt->size ? &bs : NULL,
-                                              insurf, &outsurf, sync);
+        ret = MFXVideoDECODE_DecodeFrameAsync(q->session, bs, insurf, &outsurf, sync);
         if (ret == MFX_WRN_DEVICE_BUSY)
             av_usleep(500);
 
     } while (ret == MFX_WRN_DEVICE_BUSY || ret == MFX_ERR_MORE_SURFACE);
+
+    if (ret == MFX_ERR_INCOMPATIBLE_VIDEO_PARAM) {
+        q->reinit_pending = 1;
+        av_log(avctx, AV_LOG_ERROR, "Reinit pending, bs = %d/%d.\n", bs->DataOffset, bs->DataLength);
+        return bs->DataOffset;
+    }
 
     if (ret != MFX_ERR_NONE &&
         ret != MFX_ERR_MORE_DATA &&
@@ -391,9 +378,9 @@ static int qsv_decode(AVCodecContext *avctx, QSVContext *q,
 
     /* make sure we do not enter an infinite loop if the SDK
      * did not consume any data and did not return anything */
-    if (!*sync && !bs.DataOffset) {
-        av_log(avctx, AV_LOG_WARNING, "A decode call did not consume any data, sizd = %d\n", avpkt->size);
-        bs.DataOffset = avpkt->size;
+    if (!*sync && bs && !bs->DataOffset) {
+        av_log(avctx, AV_LOG_WARNING, "A decode call did not consume any data\n");
+        bs->DataOffset = bs->DataLength;
     }
 
     if (*sync) {
@@ -414,7 +401,7 @@ static int qsv_decode(AVCodecContext *avctx, QSVContext *q,
     }
 
     if (!av_fifo_space(q->async_fifo) ||
-        (!avpkt->size && av_fifo_size(q->async_fifo))) {
+        (!bs && av_fifo_size(q->async_fifo))) {
         AVFrame *src_frame;
 
         av_fifo_generic_read(q->async_fifo, &out_frame, sizeof(out_frame), NULL);
@@ -450,11 +437,13 @@ FF_ENABLE_DEPRECATION_WARNINGS
             outsurf->Info.PicStruct & MFX_PICSTRUCT_FIELD_TFF;
         frame->interlaced_frame =
             !(outsurf->Info.PicStruct & MFX_PICSTRUCT_PROGRESSIVE);
+        if (avctx->field_order == AV_FIELD_UNKNOWN)
+            avctx->field_order = ff_qsv_map_picstruct(outsurf->Info.PicStruct);
 
         *got_frame = 1;
     }
 
-    return bs.DataOffset;
+    return bs ? bs->DataOffset : 0;
 }
 
 int ff_qsv_decode_preinit(AVCodecContext *avctx, QSVContext *q)
@@ -514,6 +503,7 @@ int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
                         AVFrame *frame, int *got_frame, AVPacket *pkt)
 {
     int ret;
+    mfxBitstream bs = { { { 0 } } };
 
 #ifdef USE_PARSER
     uint8_t *dummy_data;
@@ -534,7 +524,20 @@ int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
 #endif
 
     if (!pkt->size)
-        return qsv_decode(avctx, q, frame, got_frame, pkt);
+        return qsv_decode(avctx, q, frame, got_frame, NULL);
+    else {
+        bs.Data       = pkt->data;
+        bs.DataLength = pkt->size;
+        bs.MaxLength  = bs.DataLength;
+        bs.TimeStamp  = pkt->pts;
+        /*If we confirm the input stream is progressive,
+         * we set this flag to make MSDK output frames as
+         * soon as possible.
+         */
+        if (avctx->field_order == AV_FIELD_UNKNOWN ||
+            avctx->field_order == AV_FIELD_PROGRESSIVE)
+            bs.DataFlag   |= MFX_BITSTREAM_COMPLETE_FRAME;
+    }
 
 #ifdef USE_PARSER
     /* we assume the packets are already split properly and want
@@ -578,7 +581,7 @@ int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
 
         avctx->pix_fmt = ret;
 
-        ret = qsv_decode_init(avctx, q, pkt);
+        ret = qsv_decode_init(avctx, q, &bs);
         if (ret < 0)
             goto reinit_fail;
     }
@@ -593,14 +596,14 @@ int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
 
         avctx->pix_fmt = ret;
 
-        ret = qsv_decode_init(avctx, q, pkt);
+        ret = qsv_decode_init(avctx, q, &bs);
         if (ret < 0)
             goto reinit_fail;
         q->reinit_pending = 0;
     }
 #endif
 
-    return qsv_decode(avctx, q, frame, got_frame, pkt);
+    return qsv_decode(avctx, q, frame, got_frame, &bs);
 
 reinit_fail:
 #ifdef USE_PARSER
