@@ -193,6 +193,24 @@ int ff_qsv_find_surface_idx(QSVFramesContext *ctx, QSVFrame *frame)
     return AVERROR_BUG;
 }
 
+enum AVFieldOrder ff_qsv_map_picstruct(int mfx_pic_struct)
+{
+    enum AVFieldOrder field = AV_FIELD_UNKNOWN;
+    switch (mfx_pic_struct & 0xF) {
+        case MFX_PICSTRUCT_PROGRESSIVE:
+            field = AV_FIELD_PROGRESSIVE;
+            break;
+        case MFX_PICSTRUCT_FIELD_TFF:
+            field = AV_FIELD_TT;
+            break;
+        case MFX_PICSTRUCT_FIELD_BFF:
+            field = AV_FIELD_BB;
+            break;
+    }
+
+    return field;
+}
+
 static int qsv_load_plugins(mfxSession session, const char *load_plugins,
                             void *logctx)
 {
