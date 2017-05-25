@@ -262,3 +262,35 @@ AVCodec ff_vp8_qsv_decoder = {
                                                     AV_PIX_FMT_NONE },
 };
 #endif
+
+#if CONFIG_MJPEG_QSV_HWACCEL
+AVHWAccel ff_mjpeg_qsv_hwaccel = {
+    .name           = "mjpeg_qsv",
+    .type           = AVMEDIA_TYPE_VIDEO,
+    .id             = AV_CODEC_ID_MJPEG,
+    .pix_fmt        = AV_PIX_FMT_QSV,
+};
+#endif
+
+#if CONFIG_MJPEG_QSV_DECODER
+static const AVClass class = {
+    .class_name = "mjpeg_qsv",
+    .item_name  = av_default_item_name,
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
+
+AVCodec ff_mjpeg_qsv_decoder = {
+    .name           = "mjpeg_qsv",
+    .long_name      = NULL_IF_CONFIG_SMALL("MJPEG video (Intel Quick Sync Video acceleration)"),
+    .priv_data_size = sizeof(QSVOtherContext),
+    .type           = AVMEDIA_TYPE_VIDEO,
+    .id             = AV_CODEC_ID_MJPEG,
+    .init           = qsv_decode_init,
+    .decode         = qsv_decode_frame,
+    .flush          = qsv_decode_flush,
+    .close          = qsv_decode_close,
+    .capabilities   = AV_CODEC_CAP_DELAY | AV_CODEC_CAP_DR1 | AV_CODEC_CAP_AVOID_PROBING,
+    .priv_class     = &class,
+};
+#endif
