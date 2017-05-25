@@ -879,4 +879,5 @@ AVFilter ff_vf_overlay_vaapi = {
     .inputs        = overlay_vaapi_inputs,
     .outputs       = overlay_vaapi_outputs,
     .priv_class    = &overlay_vaapi_class,
+    .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
 };

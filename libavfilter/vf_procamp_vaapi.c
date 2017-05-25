@@ -534,4 +534,5 @@ AVFilter ff_vf_procamp_vaapi = {
     .inputs        = procamp_vaapi_inputs,
     .outputs       = procamp_vaapi_outputs,
     .priv_class    = &procamp_vaapi_class,
+    .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
 };

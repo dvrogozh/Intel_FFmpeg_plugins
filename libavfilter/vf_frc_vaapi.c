@@ -626,4 +626,5 @@ AVFilter ff_vf_frc_vaapi = {
     .inputs        = frc_vaapi_inputs,
     .outputs       = frc_vaapi_outputs,
     .priv_class    = &frc_vaapi_class,
+    .flags_internal = FF_FILTER_FLAG_HWFRAME_AWARE,
 };
