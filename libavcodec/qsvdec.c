@@ -107,20 +107,26 @@ static int qsv_init_session(AVCodecContext *avctx, QSVContext *q, mfxSession ses
             MFXClose(q->internal_session);
             q->internal_session = NULL;
         }
-        av_buffer_unref(&q->frames_ctx.hw_frames_ctx);
-
-        q->frames_ctx.hw_frames_ctx = av_buffer_ref(hw_frames_ref);
-        if (!q->frames_ctx.hw_frames_ctx)
-            return AVERROR(ENOMEM);
         /*
-         * Use the session created by AVQSVFramesContext.
-         * This session has been fully configured except the plugins.
+         * Check if we already use the same HWFramesContext.
          */
-        q->session = frames_ctx->child_session;
-        if (q->load_plugins) {
-            ret = ff_qsv_load_plugins(q->session, q->load_plugins, avctx);
-            if (ret < 0)
-                return ret;
+        if (!q->frames_ctx.hw_frames_ctx ||
+            q->frames_ctx.hw_frames_ctx->buffer != hw_frames_ref->buffer) {
+            av_buffer_unref(&q->frames_ctx.hw_frames_ctx);
+
+            q->frames_ctx.hw_frames_ctx = av_buffer_ref(hw_frames_ref);
+            if (!q->frames_ctx.hw_frames_ctx)
+                return AVERROR(ENOMEM);
+            /*
+             * Use the session created by AVQSVFramesContext.
+             * This session has been fully configured except the plugins.
+             */
+            q->session = frames_ctx->child_session;
+            if (q->load_plugins) {
+                ret = ff_qsv_load_plugins(q->session, q->load_plugins, avctx);
+                if (ret < 0)
+                    return ret;
+            }
         }
     } else {
         if (!q->session) {
