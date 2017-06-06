@@ -178,13 +178,13 @@ static int fs_process_frame(FFFrameSync *fs)
 {
     AVFilterContext   *ctx = fs->parent;
     QSVOverlayContext *vpp = fs->opaque;
-    AVFrame           *mpic, *opic;
+    AVFrame           *mpic = NULL, *opic = NULL;
     int                ret = 0;
 
     /*
      * Request frames from each input of fs.
      */
-    if ((ret = ff_framesync_get_frame(fs, 0, &mpic, 1)) < 0 ||
+    if ((ret = ff_framesync_get_frame(fs, 0, &mpic, 0)) < 0 ||
         (ret = ff_framesync_get_frame(fs, 1, &opic, 0)) < 0)
         goto err_out;
 
@@ -198,7 +198,6 @@ err_out:
      */
     if (ret < 0)
         ff_framesync_drop(fs);
-    av_frame_free(&mpic);
 
     return ret;
 }
