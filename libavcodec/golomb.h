@@ -456,7 +456,7 @@ static inline int get_te(GetBitContext *s, int r, char *file, const char *func,
 #endif /* TRACE */
 
 /**
- * write unsigned exp golomb code.
+ * write unsigned exp golomb code. 2^16-2 at most.
  */
 static inline void set_ue_golomb(PutBitContext *pb, int i)
 {
@@ -467,6 +467,24 @@ static inline void set_ue_golomb(PutBitContext *pb, int i)
     else {
         int e = av_log2(i + 1);
         put_bits(pb, 2 * e + 1, i + 1);
+    }
+}
+
+/**
+ * write unsigned exp golomb code. 2^32-2 at most.
+ */
+static inline void set_ue_golomb_long(PutBitContext *pb, uint32_t i)
+{
+    av_assert2(i <= (0xffffffff - 2));
+
+    if (i < 256)
+        put_bits(pb, ff_ue_golomb_len[i], i + 1);
+    else {
+        int e = av_log2(i + 1);
+        if (e < 16)
+            put_bits(pb, 2 * e + 1, i + 1);
+        else
+            put_bits64(pb, 2 * e + 1, i + 1);
     }
 }
 
