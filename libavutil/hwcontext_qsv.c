@@ -310,9 +310,9 @@ static int qsv_init_pool(AVHWFramesContext *ctx, uint32_t fourcc)
             surf->Info.ChromaFormat   = MFX_CHROMAFORMAT_YUV444;
 
         surf->Info.FourCC         = fourcc;
-        surf->Info.Width          = ctx->width;
+        surf->Info.Width          = FFALIGN(ctx->width, 32);
         surf->Info.CropW          = ctx->width;
-        surf->Info.Height         = ctx->height;
+        surf->Info.Height         = FFALIGN(ctx->height, 32);
         surf->Info.CropH          = ctx->height;
         surf->Info.FrameRateExtN  = 25;
         surf->Info.FrameRateExtD  = 1;

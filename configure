@@ -2138,6 +2138,7 @@ CONFIG_EXTRA="
     qsv
     qsvdec
     qsvenc
+    qsvvpp
     rangecoder
     riffdec
     riffenc
@@ -3173,6 +3174,8 @@ zmq_filter_deps="libzmq"
 zoompan_filter_deps="swscale"
 zscale_filter_deps="libzimg"
 scale_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
+overlay_qsv_filter_deps="libmfx qsv"
+overlay_qsv_filter_select="qsvvpp"
 
 # examples
 avio_dir_cmd_deps="avformat avutil"
