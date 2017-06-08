@@ -2076,6 +2076,7 @@ HAVE_LIST="
     threads
     vaapi_drm
     vaapi_x11
+    vaapi_vpg
     vdpau_x11
     winrt
     xlib
@@ -3177,9 +3178,9 @@ zmq_filter_deps="libzmq"
 zoompan_filter_deps="swscale"
 zscale_filter_deps="libzimg"
 scale_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
-procamp_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
-frc_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
-overlay_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
+procamp_vaapi_filter_deps="vaapi_vpg VAProcPipelineParameterBuffer"
+frc_vaapi_filter_deps="vaapi_vpg VAProcPipelineParameterBuffer"
+overlay_vaapi_filter_deps="vaapi_vpg VAProcPipelineParameterBuffer"
 # examples
 avio_dir_cmd_deps="avformat avutil"
 avio_reading_deps="avformat avcodec avutil"
@@ -6089,6 +6090,10 @@ enabled vaapi &&
 enabled vaapi &&
     check_lib "va/va.h va/va_drm.h" vaGetDisplayDRM -lva -lva-drm &&
     enable vaapi_drm
+
+enabled vaapi &&
+    check_struct "va/va.h va/va_vpp.h" "VABlendState" global_alpha &&
+    enable vaapi_vpg
 
 enabled vdpau &&
     check_cpp_condition vdpau/vdpau.h "defined VDP_DECODER_PROFILE_MPEG4_PART2_ASP" ||

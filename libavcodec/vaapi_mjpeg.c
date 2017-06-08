@@ -41,8 +41,9 @@ static int vaapi_mjpeg_start_frame(AVCodecContext          *avctx,
     pp->picture_width = s->width;
     pp->picture_height = s->height;
     pp->num_components = s->nb_components;
-
+#ifdef VPG_DRIVER
     pp->rotation = 0;
+#endif
     for (i = 0; i < pp->num_components; i++) {
         pp->components[i].component_id = s->component_id[i];
         pp->components[i].h_sampling_factor = s->h_count[i];

@@ -771,7 +771,7 @@ static int vaapi_map_frame(AVHWFramesContext *hwfc,
         !(flags & AV_HWFRAME_MAP_READ)) ||
         (dst->format == AV_PIX_FMT_NV12))) {
 #else
-        (dst->format == hwfc->sw_format &&
+        dst->format == hwfc->sw_format &&
         ((flags & AV_HWFRAME_MAP_DIRECT) ||
         !(flags & AV_HWFRAME_MAP_READ))) {
 #endif
