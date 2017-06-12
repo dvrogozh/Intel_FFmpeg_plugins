@@ -847,7 +847,6 @@ static int vaapi_encode_h264_write_aud_header(AVCodecContext *avctx,
                                               VAAPIEncodePicture *pic,
                                               char *data, size_t *data_len)
 {
-    VAAPIEncodeContext *ctx = avctx->priv_data;
     PutBitContext pbc;
     char tmp[256];
     size_t header_len;
@@ -1317,10 +1316,8 @@ static void vaapi_encode_h264_fill_reflist_for_field(AVCodecContext *avctx,
                                                      VAAPIEncodeSlice *slice)
 {
     VAAPIEncodeContext                 *ctx = avctx->priv_data;
-    VAEncSequenceParameterBufferH264  *vseq = ctx->codec_sequence_params;
     VAEncPictureParameterBufferH264   *vpic = pic->codec_picture_params;
     VAEncSliceParameterBufferH264   *vslice = slice->codec_slice_params;
-    VAAPIEncodeH264Context            *priv = ctx->priv_data;
     VAAPIEncodePicture *modify_dpb[16];
     int i_same, i_opp, index_same, index_opp;
     int i;
@@ -1421,8 +1418,8 @@ static void vaapi_encode_h264_fill_reflist_for_field(AVCodecContext *avctx,
 
 static int cmp_frame_num(const void *a, const void *b)
 {
-    const VAAPIEncodePicture **ref_a = a;
-    const VAAPIEncodePicture **ref_b = b;
+    const VAAPIEncodePicture * const *ref_a = a;
+    const VAAPIEncodePicture * const *ref_b = b;
 
     if ((*ref_a)->frame_num < (*ref_b)->frame_num)
         return 1;
@@ -1433,8 +1430,8 @@ static int cmp_frame_num(const void *a, const void *b)
 }
 
 static int is_ref_list_same (unsigned int *init_list,
-                            unsigned int*modify_list,
-                            unsigned int count)
+                             unsigned int*modify_list,
+                             unsigned int count)
 {
     unsigned int i = 0;
 
@@ -1896,7 +1893,6 @@ static int vaapi_encode_h264_write_extra_buffer(AVCodecContext *avctx,
                                                  char *data, size_t *data_len)
 {
     VAAPIEncodeContext       *ctx = avctx->priv_data;
-    VAAPIEncodeH264Context   *priv = ctx->priv_data;
     VAAPIEncodeH264Options   *opt  = ctx->codec_options;
 
     if (index == 0 && opt->roi_enabled == 1 && ctx->support_roi == 1) {

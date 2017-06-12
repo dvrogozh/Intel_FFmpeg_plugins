@@ -385,7 +385,7 @@ static VASliceParameterBufferBase *alloc_slice(VAAPIDecodePictureHEVC *pic, cons
                         (pic->slice_count + 1) * sizeof(VASliceParameterBufferHEVC));
     if (!slice_params)
         return NULL;
-    pic->slice_param_ptr = slice_params;
+    pic->slice_param_ptr = (VASliceParameterBufferHEVC *)slice_params;
 
     slice_param = (VASliceParameterBufferBase *)(slice_params + pic->slice_count * sizeof(VASliceParameterBufferHEVC));
     pic->slice_count++;

@@ -2298,7 +2298,7 @@ eoi_parser:
                 break;
             }
             if (s->cur_scan == 1 && avctx->hwaccel) {
-                ret = avctx->hwaccel->start_frame(avctx, NULL, NULL);
+                ret = avctx->hwaccel->start_frame(avctx, NULL, 0);
                 if (ret < 0)
                     av_log(avctx, AV_LOG_ERROR, "start frame fail\n");
             }
@@ -2307,7 +2307,7 @@ eoi_parser:
                 goto fail;
 
             if (avctx->hwaccel) {
-                uint8_t *buf_start = buf_ptr + get_bits_count(&s->gb)/ 8;
+                const uint8_t *buf_start = buf_ptr + get_bits_count(&s->gb)/ 8;
                 ret = avctx->hwaccel->decode_slice(avctx, buf_start, buf_end - buf_start);
                 if (ret < 0)
                     av_log(NULL, AV_LOG_ERROR, "decode_slice error");

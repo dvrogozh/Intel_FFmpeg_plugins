@@ -1205,9 +1205,6 @@ static int vaapi_encode_h265_init_slice_params(AVCodecContext *avctx,
         mslice->short_term_ref_pic_set_sps_flag = 1;
         mslice->short_term_ref_pic_idx = 0;
     } else {
-        VAAPIEncodePicture *st;
-        int used;
-
         mslice->short_term_ref_pic_set_sps_flag = 0;
         mslice->st_ref_pic_set.inter_ref_pic_set_prediction_flag = 0;
 #ifdef VPG_DRIVER
