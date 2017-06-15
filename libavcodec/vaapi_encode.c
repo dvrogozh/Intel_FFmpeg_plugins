@@ -2355,12 +2355,14 @@ static av_cold int vaapi_encode_init_rate_control(AVCodecContext *avctx)
         hrd_initial_buffer_fullness = hrd_buffer_size / 2;
 
     if (ctx->va_rc_mode == VA_RC_CBR) {
+        avctx->rc_max_rate = avctx->bit_rate;
         rc_bits_per_second   = avctx->bit_rate;
         rc_target_percentage = 100;
         rc_window_size       = 1000;
     } else {
         if (avctx->rc_max_rate < avctx->bit_rate) {
             // Max rate is unset or invalid, just use the normal bitrate.
+            avctx->rc_max_rate = avctx->bit_rate * 3 / 2;
             rc_bits_per_second   = avctx->bit_rate;
             rc_target_percentage = 100;
         } else {
