@@ -1492,33 +1492,25 @@ static int vaapi_encode_get_next(AVCodecContext *avctx,
         }
     }
 
-    if (ctx->input_order == 0) {
-        pic->display_order = 0;
-        pic->encode_order  = 0;
-
-        ctx->pic_start = ctx->pic_end = pic;
-
-    } else {
-        for (i = 0, pic = start; pic; i++, pic = pic->next) {
-            pic->display_order = ctx->input_order + i;
-            if (end->type == PICTURE_TYPE_IDR)
-                pic->encode_order = ctx->input_order + i;
-            else if (pic == end)
-                pic->encode_order = ctx->input_order;
+    for (i = 0, pic = start; pic; i++, pic = pic->next) {
+        pic->display_order = ctx->input_order + i;
+        if (end->type == PICTURE_TYPE_IDR)
+            pic->encode_order = ctx->input_order + i;
+        else if (pic == end)
+            pic->encode_order = ctx->input_order;
 #ifdef VPG_DRIVER
-            else {
-                if (ctx->bipyramid && (pic->type == PICTURE_TYPE_B)) {
-                    // for Pyramid-B
-                    pic->encode_order = vaapi_encode_get_encode_order (i, 0, ctx->b_per_p, 0, &pic->b_frame_ref_flag);
-                    pic->encode_order += ctx->input_order + 1;
-                } else
-                    pic->encode_order = ctx->input_order + i + 1;
-            }
-#else
-            else
+        else {
+            if (ctx->bipyramid && (pic->type == PICTURE_TYPE_B)) {
+                // for Pyramid-B
+                pic->encode_order = vaapi_encode_get_encode_order (i, 0, ctx->b_per_p, 0, &pic->b_frame_ref_flag);
+                pic->encode_order += ctx->input_order + 1;
+            } else
                 pic->encode_order = ctx->input_order + i + 1;
-#endif
         }
+#else
+        else
+            pic->encode_order = ctx->input_order + i + 1;
+#endif
     }
 
 #ifdef VPG_DRIVER
