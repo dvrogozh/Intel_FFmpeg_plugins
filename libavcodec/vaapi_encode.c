@@ -2178,29 +2178,18 @@ static av_cold int vaapi_encode_init_rate_control(AVCodecContext *avctx)
     else
         hrd_initial_buffer_fullness = hrd_buffer_size / 2;
 
-    if (ctx->va_rc_mode == VA_RC_CBR) {
+    if (ctx->va_rc_mode & VA_RC_CBR) {
         avctx->rc_max_rate = avctx->bit_rate;
-        rc_bits_per_second   = avctx->bit_rate;
-        rc_target_percentage = 100;
-        rc_window_size       = 1000;
     } else {
-        if (avctx->rc_max_rate < avctx->bit_rate) {
-            // Max rate is unset or invalid, just use the normal bitrate.
+        if (avctx->rc_max_rate < avctx->bit_rate)
             avctx->rc_max_rate = avctx->bit_rate * 3 / 2;
-            rc_bits_per_second   = avctx->bit_rate;
-            rc_target_percentage = 100;
-        } else {
-            rc_bits_per_second   = avctx->rc_max_rate;
-            rc_target_percentage = (avctx->bit_rate * 100) / rc_bits_per_second;
-        }
-        rc_window_size = (hrd_buffer_size * 1000) / avctx->bit_rate;
     }
 
     ctx->rc_params.misc.type = VAEncMiscParameterTypeRateControl;
     ctx->rc_params.rc = (VAEncMiscParameterRateControl) {
-        .bits_per_second   = rc_bits_per_second,
-        .target_percentage = rc_target_percentage,
-        .window_size       = rc_window_size,
+        .bits_per_second   = avctx->rc_max_rate,
+        .target_percentage = 100 * avctx->bit_rate /avctx->rc_max_rate,
+        .window_size       = 1000,
         .initial_qp        = (avctx->qmax >= 0 ? avctx->qmax : 40),
         .min_qp            = (avctx->qmin >= 0 ? avctx->qmin : 18),
 #ifdef VPG_DRIVER
