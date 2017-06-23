@@ -325,10 +325,6 @@ static int deint_vaapi_config_output(AVFilterLink *outlink)
         goto fail;
     }
 
-    err = deint_vaapi_build_filter_params(avctx);
-    if (err < 0)
-        goto fail;
-
     outlink->w = ctx->output_width;
     outlink->h = ctx->output_height;
 
@@ -426,13 +422,6 @@ static int deint_vaapi_filter_frame(AVFilterLink *inlink, AVFrame *input_frame)
 
     output_frame = av_frame_alloc();
     if (!output_frame) {
-        err = AVERROR(ENOMEM);
-        goto fail;
-    }
-
-    err = av_hwframe_get_buffer(ctx->output_frames_ref,
-                                output_frame, 0);
-    if (err < 0) {
         err = AVERROR(ENOMEM);
         goto fail;
     }
