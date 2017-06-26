@@ -140,7 +140,13 @@ static int qsv_device_init(AVHWDeviceContext *ctx)
 
 static void qsv_frames_uninit(AVHWFramesContext *ctx)
 {
-    QSVFramesContext *s = ctx->internal->priv;
+    QSVFramesContext           *s = ctx->internal->priv;
+#if CONFIG_VAAPI
+    AVQSVFramesContext *frame_ctx = ctx->hwctx;
+    QSVDeviceContext    *dev_priv = ctx->device_ctx->internal->priv;
+    VADisplay                 dpy = dev_priv->handle;
+#endif
+    int i;
 
     if (s->session_download) {
         MFXVideoVPP_Close(s->session_download);
@@ -153,6 +159,17 @@ static void qsv_frames_uninit(AVHWFramesContext *ctx)
         MFXClose(s->session_upload);
     }
     s->session_upload = NULL;
+
+#if CONFIG_VAAPI
+    if (!(frame_ctx->frame_type & MFX_MEMTYPE_OPAQUE_FRAME) &&
+        ctx->sw_format == AV_PIX_FMT_PAL8) {
+        for (i = 0; i < frame_ctx->nb_surfaces; i++) {
+            VABufferID *bid = (VABufferID*)s->surfaces_internal[i].Data.MemId;
+            vaDestroyBuffer(dpy, *bid);
+            av_freep(&bid);
+        }
+    }
+#endif
 
     av_freep(&s->mem_ids);
     av_freep(&s->surface_ptrs);
@@ -318,6 +335,46 @@ static int qsv_init_surface(AVHWFramesContext *ctx, mfxFrameSurface1 *surf)
     return 0;
 }
 
+#if CONFIG_VAAPI
+static int qsv_init_pool_p8(AVHWFramesContext *ctx)
+{
+    int                    i, ret = 0;
+    AVQSVFramesContext     *hwctx = ctx->hwctx;
+    QSVFramesContext           *s = ctx->internal->priv;
+    QSVDeviceContext *device_priv = ctx->device_ctx->internal->priv;
+
+    if (!device_priv->handle) {
+        av_log(ctx, AV_LOG_ERROR,
+               "Cannot create a non-opaque internal surface pool without "
+               "a hardware handle\n");
+        return AVERROR(EINVAL);
+    }
+
+    for(i = 0; i < ctx->initial_pool_size; i++) {
+        VABufferID *bid = av_mallocz(sizeof(*bid));
+        if (!bid)
+            return AVERROR(ENOMEM);
+
+        ret = vaCreateBuffer(device_priv->handle,
+                             hwctx->alloc_id,
+                             VAEncCodedBufferType,
+                             ctx->width * FFALIGN(ctx->height,32) * 400LL / (16 * 16),
+                             1, NULL, bid);
+        if (ret != VA_STATUS_SUCCESS) {
+            av_log(ctx, AV_LOG_ERROR, "Create Buffer failed with %s.\n",
+                   vaErrorStr(ret));
+            av_freep(&bid);
+            break;
+        }
+        s->surfaces_internal[i].Data.MemId = bid;
+    }
+
+    hwctx->frame_type = MFX_MEMTYPE_VIDEO_MEMORY_DECODER_TARGET;
+
+    return ret;
+}
+#endif
+
 static int qsv_init_pool(AVHWFramesContext *ctx, uint32_t fourcc)
 {
     QSVFramesContext              *s = ctx->internal->priv;
@@ -342,7 +399,12 @@ static int qsv_init_pool(AVHWFramesContext *ctx, uint32_t fourcc)
     }
 
     if (!(frames_hwctx->frame_type & MFX_MEMTYPE_OPAQUE_FRAME)) {
-        ret = qsv_init_child_ctx(ctx);
+#if CONFIG_VAAPI
+        if (ctx->sw_format == AV_PIX_FMT_PAL8)
+            ret = qsv_init_pool_p8(ctx);
+        else
+#endif
+            ret = qsv_init_child_ctx(ctx);
         if (ret < 0)
             return ret;
     }
@@ -626,6 +688,17 @@ static int qsv_frames_derive_from(AVHWFramesContext *dst_ctx,
     return 0;
 }
 
+#if CONFIG_VAAPI
+static void qsv_unmap_p8(void *opaque, uint8_t *data)
+{
+    VABufferID bid = *(VABufferID*)data;
+    AVHWFramesContext *ctx = opaque;
+    QSVDeviceContext *dev_priv = ctx->device_ctx->internal->priv;
+
+    vaUnmapBuffer(dev_priv->handle, bid);
+}
+#endif
+
 static int qsv_map_from(AVHWFramesContext *ctx,
                         AVFrame *dst, const AVFrame *src, int flags)
 {
@@ -636,6 +709,29 @@ static int qsv_map_from(AVHWFramesContext *ctx,
     uint8_t *child_data;
     AVFrame *dummy;
     int ret = 0;
+
+#if CONFIG_VAAPI
+    QSVDeviceContext *dev_priv = ctx->device_ctx->internal->priv;
+
+    if (ctx->sw_format == AV_PIX_FMT_PAL8) {
+        VABufferID bid = *(VABufferID*)surf->Data.MemId;
+        VACodedBufferSegment *coded_buffer_segment;
+        ret = vaMapBuffer(dev_priv->handle, bid, (void **)&coded_buffer_segment);
+        if (ret == 0) {
+            dst->data[0] = coded_buffer_segment->buf;
+            dst->buf[0] = av_buffer_create((uint8_t *)surf->Data.MemId,
+                                           sizeof(VABufferID),
+                                           &qsv_unmap_p8, ctx, 0);
+            if (!dst->buf[0]) {
+                vaUnmapBuffer(dev_priv->handle, bid);
+                return AVERROR(ENOMEM);
+            }
+            return ret;
+        }
+
+        return MFX_ERR_UNSUPPORTED;
+    }
+#endif
 
     if (!s->child_frames_ref)
         return AVERROR(ENOSYS);

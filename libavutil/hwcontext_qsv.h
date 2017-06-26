@@ -47,6 +47,8 @@ typedef struct AVQSVFramesContext {
      * A combination of MFX_MEMTYPE_* describing the frame pool.
      */
     int frame_type;
+
+    int alloc_id;
 } AVQSVFramesContext;
 
 #endif /* AVUTIL_HWCONTEXT_QSV_H */

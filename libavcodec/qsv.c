@@ -455,6 +455,7 @@ static mfxStatus qsv_frame_alloc(mfxHDL pthis, mfxFrameAllocRequest *req,
         frames_ctx->initial_pool_size = req->NumFrameSuggested;
 
         frames_hwctx->frame_type      = req->Type;
+        frames_hwctx->alloc_id        = req->AllocId;
 
         ret = av_hwframe_ctx_init(frames_ref);
         if (ret < 0) {
