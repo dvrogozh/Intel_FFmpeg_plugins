@@ -583,6 +583,9 @@ static int qsv_frames_init(AVHWFramesContext *ctx)
         frames_hwctx->frame_type = MFX_MEMTYPE_VIDEO_MEMORY_DECODER_TARGET;
     }
 
+    if (ctx->sw_format == AV_PIX_FMT_PAL8)
+        return 0;
+
     ret = qsv_init_internal_session(ctx, &s->session_download, 0);
     if (ret < 0)
         return ret;
@@ -776,6 +779,9 @@ static int qsv_transfer_data_from(AVHWFramesContext *ctx, AVFrame *dst,
     mfxSyncPoint sync = NULL;
     mfxStatus err;
 
+    if (ctx->sw_format == AV_PIX_FMT_PAL8)
+        return AVERROR(ENOSYS);
+
     if (!s->session_download) {
         if (s->child_frames_ref)
             return qsv_transfer_data_child(ctx, dst, src);
@@ -818,6 +824,9 @@ static int qsv_transfer_data_to(AVHWFramesContext *ctx, AVFrame *dst,
 
     mfxSyncPoint sync = NULL;
     mfxStatus err;
+
+    if (ctx->sw_format == AV_PIX_FMT_PAL8)
+        return AVERROR(ENOSYS);
 
     if (!s->session_upload) {
         if (s->child_frames_ref)
