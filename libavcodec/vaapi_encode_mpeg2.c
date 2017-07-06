@@ -256,6 +256,15 @@ static int vaapi_encode_mpeg2_init_sequence_params(AVCodecContext *avctx)
     return 0;
 }
 
+#ifdef VPG_DRIVER
+#define RANGE_TO_F_CODE(range, fcode) { \
+    int fc = 1;                        \
+    while((4<<fc) < range && fc <= 15)    \
+    fc++;                               \
+    fcode = fc;                           \
+}
+#endif
+
 static int vaapi_encode_mpeg2_init_picture_params(AVCodecContext *avctx,
                                                  VAAPIEncodePicture *pic)
 {
@@ -289,14 +298,23 @@ static int vaapi_encode_mpeg2_init_picture_params(AVCodecContext *avctx,
         break;
     case PICTURE_TYPE_P:
         vpic->picture_type = VAEncPictureTypePredictive;
+#ifndef VPG_DRIVER
         vpic->forward_reference_picture = pic->refs[0]->recon_surface;
+#else
+        vpic->forward_reference_picture = pic->refs[pic->nb_refs - 1]->recon_surface;
+#endif
         vpic->f_code[0][0] = fch;
         vpic->f_code[0][1] = fcv;
         break;
     case PICTURE_TYPE_B:
         vpic->picture_type = VAEncPictureTypeBidirectional;
+#ifndef VPG_DRIVER
         vpic->forward_reference_picture  = pic->refs[0]->recon_surface;
         vpic->backward_reference_picture = pic->refs[1]->recon_surface;
+#else
+        vpic->forward_reference_picture = pic->refs[pic->nb_refs - 2]->recon_surface;
+        vpic->backward_reference_picture = pic->refs[pic->nb_refs - 1]->recon_surface;
+#endif
         vpic->f_code[0][0] = fch;
         vpic->f_code[0][1] = fcv;
         vpic->f_code[1][0] = fch;
@@ -305,7 +323,63 @@ static int vaapi_encode_mpeg2_init_picture_params(AVCodecContext *avctx,
     default:
         av_assert0(0 && "invalid picture type");
     }
+#ifdef VPG_DRIVER
+    {
+        int mv_range_p[2], mv_range_b[2][2];
+        {
+            mv_range_p[0] = avctx->width < 200 ? 32 /*3*/ : avctx->width < 500 ? 64 /*4*/  : avctx->width < 1400 ? 128 /*5*/ : 256/*6*/;             // 200, 500, 1400 are horizontal resolution
+            mv_range_p[1] = mv_range_p[0] > 128 /*5*/ ? 128 /*5*/ : mv_range_p[0];
+        }
+        mv_range_b[0][0] =  mv_range_p[0];
+        mv_range_b[0][1] =  mv_range_p[1];
+        mv_range_b[1][0] =  mv_range_p[0];
+        mv_range_b[1][1] =  mv_range_p[1];
+        unsigned short bitstream_fcode = 0;
 
+        if (pic->type == PICTURE_TYPE_I || pic->type == PICTURE_TYPE_IDR)
+        {
+            bitstream_fcode = 0xffff;
+        }
+        else if (pic->type == PICTURE_TYPE_P)
+        {
+            bitstream_fcode = 0xff;
+
+            unsigned int fcode=0;
+            RANGE_TO_F_CODE (((int)mv_range_p[0]),fcode);
+            bitstream_fcode |= (fcode & 0x0f)<<12;
+
+            fcode=0;
+            RANGE_TO_F_CODE (((int)mv_range_p[1]), fcode);
+            bitstream_fcode |= (fcode & 0x0f)<<8;
+
+        }
+        else
+        {
+            unsigned int fcode=0;
+            RANGE_TO_F_CODE ((int)mv_range_b[0][0],fcode);
+            bitstream_fcode |= (fcode & 0x0f)<<12;
+
+            fcode=0;
+            RANGE_TO_F_CODE ((int)mv_range_b[0][1], fcode);
+            bitstream_fcode |= (fcode & 0x0f)<<8;
+
+            fcode=0;
+            RANGE_TO_F_CODE ((int)mv_range_b[1][0],fcode);
+            bitstream_fcode |= (fcode & 0x0f)<<4;
+
+            fcode=0;
+            RANGE_TO_F_CODE ((int)mv_range_b[1][1], fcode);
+            bitstream_fcode |= (fcode & 0x0f)<<0;
+        }
+
+        vpic->f_code[0][0]                   = (bitstream_fcode >> 12) & 0x0f;
+        vpic->f_code[0][1]                   = (bitstream_fcode >> 8 ) & 0x0f;
+        vpic->f_code[1][0]                   = (bitstream_fcode >> 4 ) & 0x0f;
+        vpic->f_code[1][1]                   = (bitstream_fcode >> 0 ) & 0x0f;
+
+
+    }
+#endif
     vpic->reconstructed_picture = pic->recon_surface;
     vpic->coded_buf = pic->output_buffer;
 
@@ -346,7 +420,9 @@ static int vaapi_encode_mpeg2_init_slice_params(AVCodecContext *avctx,
     vslice->quantiser_scale_code = qp;
     vslice->is_intra_slice = (pic->type == PICTURE_TYPE_IDR ||
                               pic->type == PICTURE_TYPE_I);
-
+#ifdef VPG_DRIVER
+        vslice->macroblock_address = slice->index;
+#endif
     return 0;
 }
 
@@ -399,12 +475,13 @@ static const VAAPIEncodeType vaapi_encode_type_mpeg2 = {
 
     .slice_params_size     = sizeof(VAEncSliceParameterBufferMPEG2),
     .init_slice_params     = &vaapi_encode_mpeg2_init_slice_params,
-
+#ifndef VPG_DRIVER
     .sequence_header_type  = VAEncPackedHeaderSequence,
     .write_sequence_header = &vaapi_encode_mpeg2_write_sequence_header,
 
     .picture_header_type   = VAEncPackedHeaderPicture,
     .write_picture_header  = &vaapi_encode_mpeg2_write_picture_header,
+#endif
 };
 
 static av_cold int vaapi_encode_mpeg2_init(AVCodecContext *avctx)
@@ -435,7 +512,9 @@ static av_cold int vaapi_encode_mpeg2_init(AVCodecContext *avctx)
 
     ctx->surface_width  = FFALIGN(avctx->width,  16);
     ctx->surface_height = FFALIGN(avctx->height, 16);
-
+#ifdef VPG_DRIVER
+    ctx->max_ref_nr = MAX_PICTURE_REFERENCES;
+#endif
     return ff_vaapi_encode_init(avctx);
 }
 
