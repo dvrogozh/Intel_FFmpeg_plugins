@@ -117,7 +117,7 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
     } else if (avctx->rc_max_rate == avctx->bit_rate) {
         q->param.mfx.RateControlMethod = MFX_RATECONTROL_CBR;
         ratecontrol_desc = "constant bitrate (CBR)";
-    } else if (!avctx->rc_max_rate) {
+    } else {
 #if QSV_VERSION_ATLEAST(1,7)
         if (q->look_ahead) {
             q->param.mfx.RateControlMethod = MFX_RATECONTROL_LA;
@@ -125,17 +125,9 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
         } else
 #endif
         {
-#if 0
-            q->param.mfx.RateControlMethod = MFX_RATECONTROL_AVBR;
-            ratecontrol_desc = "average variable bitrate (AVBR)";
-#else
             q->param.mfx.RateControlMethod = MFX_RATECONTROL_VBR;
             ratecontrol_desc = "variable bitrate (VBR)";
-#endif
         }
-    } else {
-        q->param.mfx.RateControlMethod = MFX_RATECONTROL_VBR;
-        ratecontrol_desc = "variable bitrate (VBR)";
     }
 
     //q->param.mfx.RateControlMethod = MFX_RATECONTROL_VBR;
