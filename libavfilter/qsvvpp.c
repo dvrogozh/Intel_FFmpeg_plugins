@@ -209,7 +209,6 @@ static QSVFrame *submit_frame(FFQSVVPPContext *s, AVFilterLink *inlink, AVFrame 
         av_log(ctx, AV_LOG_ERROR, "Can't alloc new frame.\n");
         return NULL;
     }
-    qsv_frame->frame = av_frame_clone(picref);
 
     /*
      * Turn AVFrame into mfxFrameSurface1.
@@ -219,12 +218,30 @@ static QSVFrame *submit_frame(FFQSVVPPContext *s, AVFilterLink *inlink, AVFrame 
      * AVFrame, we should map it into mfxFrameSurface1.
      */
     if (s->in_video_mem) {
+        qsv_frame->frame = av_frame_clone(picref);
         if (qsv_frame->frame->format != AV_PIX_FMT_QSV) {
             av_log(ctx, AV_LOG_ERROR, "QSVVPP gets a wrong frame.\n");
             return NULL;
         }
         qsv_frame->surface = (mfxFrameSurface1*)qsv_frame->frame->data[3];
     } else {
+        /* make a copy if the input is not padded as libmfx requires */
+        if (picref->height & 31 || picref->linesize[0] & 31) {
+            qsv_frame->frame = ff_get_video_buffer(inlink,
+                                            FFALIGN(inlink->w, 128),
+                                            FFALIGN(inlink->h, 64));
+            qsv_frame->frame->width   = picref->width;
+            qsv_frame->frame->height  = picref->height;
+
+            if (av_frame_copy(qsv_frame->frame, picref) < 0) {
+                av_frame_unref(qsv_frame->frame);
+                return NULL;
+            }
+            av_frame_copy_props(qsv_frame->frame, picref);
+        } else {
+            qsv_frame->frame = av_frame_clone(picref);
+        }
+
         if (map_frame_to_surface(qsv_frame->frame,
                                 &qsv_frame->surface_internal) < 0) {
             av_log(ctx, AV_LOG_ERROR, "Unsupported frame.\n");

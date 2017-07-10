@@ -172,8 +172,8 @@ static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q, mfxBitstream *b
 #ifndef USE_PARSER
     avctx->width        = param.mfx.FrameInfo.CropW;
     avctx->height       = param.mfx.FrameInfo.CropH;
-    avctx->coded_width  = param.mfx.FrameInfo.CropW;
-    avctx->coded_height = param.mfx.FrameInfo.CropH;
+    avctx->coded_width  = param.mfx.FrameInfo.Width;
+    avctx->coded_height = param.mfx.FrameInfo.Height;
     avctx->level        = param.mfx.CodecProfile;
     avctx->profile      = param.mfx.CodecLevel;
     avctx->field_order  = ff_qsv_map_picstruct(param.mfx.FrameInfo.PicStruct);
