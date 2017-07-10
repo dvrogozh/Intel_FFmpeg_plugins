@@ -24,7 +24,7 @@ static int vaapi_mjpeg_start_frame(AVCodecContext          *avctx,
                                  av_unused uint32_t       size)
 {
     const MJpegDecodeContext *s = avctx->priv_data;
-    VAAPIDecodePicture *pic = s->current_picture_ptr->hwaccel_picture_private;
+    VAAPIDecodePicture *pic = s->hwaccel_picture_private;
     VAPictureParameterBufferJPEGBaseline pic_param;
     VAPictureParameterBufferJPEGBaseline *pp;
     VAHuffmanTableBufferJPEGBaseline pic_huffman_table;
@@ -34,7 +34,7 @@ static int vaapi_mjpeg_start_frame(AVCodecContext          *avctx,
     int i, j, num_quant_table, num_huffman_table;
     int err;
 
-    pic->output_surface = ff_vaapi_get_surface_id(s->current_picture_ptr->f);
+    pic->output_surface = ff_vaapi_get_surface_id(s->picture_ptr);
     memset(&pic_param, 0, sizeof(VAPictureParameterBufferJPEGBaseline));
 
     pp = &pic_param;
@@ -69,7 +69,7 @@ static int vaapi_mjpeg_start_frame(AVCodecContext          *avctx,
     
     err = ff_vaapi_decode_make_param_buffer(avctx, pic,
                                             VAIQMatrixBufferType,
-                                            &iq_matrix, sizeof(pic_iq_matrix));
+                                            iq_matrix, sizeof(pic_iq_matrix));
 	if (err < 0)
 		goto fail;
     huffman_table = &pic_huffman_table;
@@ -93,7 +93,7 @@ static int vaapi_mjpeg_start_frame(AVCodecContext          *avctx,
     }
     err = ff_vaapi_decode_make_param_buffer(avctx, pic,
     		                                VAHuffmanTableBufferType,
-                                            &huffman_table, sizeof(pic_huffman_table));
+                                            huffman_table, sizeof(pic_huffman_table));
 	if (err < 0)
 		goto fail;
 
@@ -106,7 +106,7 @@ fail:
 static int vaapi_mjpeg_end_frame(AVCodecContext *avctx)
 {
 	const MJpegDecodeContext *h = avctx->priv_data;
-	VAAPIDecodePicture *pic = h->current_picture_ptr->hwaccel_picture_private;
+	VAAPIDecodePicture *pic = h->hwaccel_picture_private;
 	int ret;
 
 	ret = ff_vaapi_decode_issue(avctx, pic);
@@ -122,7 +122,7 @@ static int vaapi_mjpeg_decode_slice(AVCodecContext *avctx,
                                   uint32_t        size)
 {
     const MJpegDecodeContext *s = avctx->priv_data;
-    VAAPIDecodePicture *pic = s->current_picture_ptr->hwaccel_picture_private;
+    VAAPIDecodePicture *pic = s->hwaccel_picture_private;
     VASliceParameterBufferJPEGBaseline pic_sp;
     VASliceParameterBufferJPEGBaseline *sp;
     int i, err;
@@ -141,7 +141,7 @@ static int vaapi_mjpeg_decode_slice(AVCodecContext *avctx,
     sp->restart_interval = s->restart_interval;
     sp->num_mcus = s->mb_width * s->mb_height;
     err = ff_vaapi_decode_make_slice_buffer(avctx, pic,
-                                            &sp, sizeof(pic_sp),
+                                            sp, sizeof(pic_sp),
                                             buffer, size);
     if (err) {
         ff_vaapi_decode_cancel(avctx, pic);
@@ -158,6 +158,7 @@ AVHWAccel ff_mjpeg_vaapi_hwaccel = {
     .start_frame          = &vaapi_mjpeg_start_frame,
     .end_frame            = &vaapi_mjpeg_end_frame,
     .decode_slice         = &vaapi_mjpeg_decode_slice,
+    .frame_priv_data_size = sizeof(VAAPIDecodePicture),
     .init                 = &ff_vaapi_decode_init,
     .uninit               = &ff_vaapi_decode_uninit,
     .priv_data_size       = sizeof(VAAPIDecodePicture),

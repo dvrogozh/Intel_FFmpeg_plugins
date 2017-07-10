@@ -2298,6 +2298,14 @@ eoi_parser:
                 break;
             }
             if (s->cur_scan == 1 && avctx->hwaccel) {
+                const AVHWAccel *hwaccel = s->avctx->hwaccel;
+                if (hwaccel->frame_priv_data_size && !s->hwaccel_priv_buf) {
+                    s->hwaccel_priv_buf = av_buffer_allocz(hwaccel->frame_priv_data_size);
+                    if (!s->hwaccel_priv_buf)
+                        goto fail;
+                    s->hwaccel_picture_private = s->hwaccel_priv_buf->data;
+                }
+
                 ret = avctx->hwaccel->start_frame(avctx, NULL, 0);
                 if (ret < 0)
                     av_log(avctx, AV_LOG_ERROR, "start frame fail\n");

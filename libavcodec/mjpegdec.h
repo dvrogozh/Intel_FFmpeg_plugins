@@ -41,56 +41,6 @@
 
 #define MAX_COMPONENTS 4
 
-/**
- * Picture.
- */
-typedef struct Picture {
-    struct AVFrame *f;
-
-    AVBufferRef *qscale_table_buf;
-    int8_t *qscale_table;
-
-    AVBufferRef *motion_val_buf[2];
-    int16_t (*motion_val[2])[2];
-
-    AVBufferRef *mb_type_buf;
-    uint32_t *mb_type;          ///< types and macros are defined in mpegutils.h
-
-    AVBufferRef *mbskip_table_buf;
-    uint8_t *mbskip_table;
-
-    AVBufferRef *ref_index_buf[2];
-    int8_t *ref_index[2];
-
-    AVBufferRef *mb_var_buf;
-    uint16_t *mb_var;           ///< Table for MB variances
-
-    AVBufferRef *mc_mb_var_buf;
-    uint16_t *mc_mb_var;        ///< Table for motion compensated MB variances
-
-    int alloc_mb_width;         ///< mb_width used to allocate tables
-    int alloc_mb_height;        ///< mb_height used to allocate tables
-
-    AVBufferRef *mb_mean_buf;
-    uint8_t *mb_mean;           ///< Table for MB luminance
-
-    AVBufferRef *hwaccel_priv_buf;
-    void *hwaccel_picture_private; ///< Hardware accelerator private data
-
-    int field_picture;          ///< whether or not the picture was encoded in separate fields
-
-    int64_t mb_var_sum;         ///< sum of MB variance for current frame
-    int64_t mc_mb_var_sum;      ///< motion compensated MB variance for current frame
-
-    int b_frame_score;
-    int needs_realloc;          ///< Picture needs to be reallocated (eg due to a frame size change)
-
-    int reference;
-    int shared;
-
-    uint64_t encoding_error[AV_NUM_DATA_POINTERS];
-} Picture;
-
 typedef struct MJpegDecodeContext {
     AVClass *class;
     AVCodecContext *avctx;
@@ -99,6 +49,7 @@ typedef struct MJpegDecodeContext {
     int start_code; /* current start code */
     int buffer_size;
     uint8_t *buffer;
+
     uint16_t quant_matrixes[4][64];
     int16_t q_tables_valid[4];
     uint8_t htdc_valid[4];
@@ -164,7 +115,8 @@ typedef struct MJpegDecodeContext {
     BlockDSPContext bdsp;
     HpelDSPContext hdsp;
     IDCTDSPContext idsp;
-    Picture *current_picture_ptr;    ///< buffer to store the decompressed current picture
+    AVBufferRef *hwaccel_priv_buf;
+    void *hwaccel_picture_private; ///< Hardware accelerator private data
 
     int restart_interval;
     int restart_count;

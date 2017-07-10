@@ -272,6 +272,7 @@ static const struct {
 #if VA_CHECK_VERSION(0, 39, 0)
     MAP(VP9,         VP9_2,           VP9Profile2 ),
 #endif
+    MAP(MJPEG,       UNKNOWN,         JPEGBaseline),
 #undef MAP
 };
 
