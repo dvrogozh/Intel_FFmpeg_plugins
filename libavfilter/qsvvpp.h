@@ -27,6 +27,11 @@ typedef int (*qsvvpp_post_proc) (AVFilterLink *outlink, AVFrame *frame);
 typedef struct FFQSVVPPParam {
     qsvvpp_post_proc cb;
     mfxVideoParam    vpp_param;
+    /*
+     * The sw pixel format of the output link.
+     * Used only in video-memory.
+     */
+    enum AVPixelFormat sw_format;
 } FFQSVVPPParam;
 
 int ff_qsvvpp_create(AVFilterContext *avctx, FFQSVVPPContext **vpp, FFQSVVPPParam *param);

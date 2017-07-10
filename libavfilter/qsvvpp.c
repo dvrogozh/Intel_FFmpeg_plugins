@@ -343,7 +343,7 @@ int ff_qsvvpp_create(AVFilterContext *avctx, FFQSVVPPContext **vpp, FFQSVVPPPara
         frames_ctx->width             = s->out_info.CropW;
         frames_ctx->height            = s->out_info.CropH;
         frames_ctx->format            = AV_PIX_FMT_QSV;
-        frames_ctx->sw_format         = AV_PIX_FMT_NV12;
+        frames_ctx->sw_format         = param->sw_format;
         frames_ctx->initial_pool_size = 0;
         qsv_frames_ctx->frame_type    = MFX_MEMTYPE_VIDEO_MEMORY_DECODER_TARGET;
         ret = av_hwframe_ctx_init(s->frames_ctx_ref);

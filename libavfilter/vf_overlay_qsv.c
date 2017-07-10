@@ -349,6 +349,8 @@ static int overlay_qsv_config_output(AVFilterLink *outlink)
     else
         vpp->qsv_param.vpp_param.IOPattern |= MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
 
+    vpp->qsv_param.sw_format = AV_PIX_FMT_NV12;
+
     return ff_qsvvpp_create(ctx, &vpp->qsv, &vpp->qsv_param);
 }
 

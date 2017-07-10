@@ -214,6 +214,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(HUE,            hue,            vf);
     REGISTER_FILTER(HWDOWNLOAD,     hwdownload,     vf);
     REGISTER_FILTER(HWUPLOAD,       hwupload,       vf);
+    REGISTER_FILTER(HWUPLOAD_QSV,   hwupload_qsv,   vf);
     REGISTER_FILTER(HWUPLOAD_CUDA,  hwupload_cuda,  vf);
     REGISTER_FILTER(HYSTERESIS,     hysteresis,     vf);
     REGISTER_FILTER(IDET,           idet,           vf);

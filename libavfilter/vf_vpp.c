@@ -391,9 +391,9 @@ static int config_output(AVFilterLink *outlink)
     else
         vpp->qsv_param.vpp_param.IOPattern |= MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
 
-    ret = ff_qsvvpp_create(ctx, &vpp->qsv, &vpp->qsv_param);
+    vpp->qsv_param.sw_format = AV_PIX_FMT_NV12;
 
-    return ret;
+    return ff_qsvvpp_create(ctx, &vpp->qsv, &vpp->qsv_param);
 }
 
 static int filter_frame(AVFilterLink *inlink, AVFrame *picref)

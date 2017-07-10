@@ -3112,6 +3112,8 @@ zscale_filter_deps="libzimg"
 scale_vaapi_filter_deps="vaapi VAProcPipelineParameterBuffer"
 overlay_qsv_filter_deps="libmfx qsv"
 overlay_qsv_filter_select="qsvvpp"
+hwupload_qsv_filter_deps="libmfx qsv"
+hwupload_qsv_filter_select="qsvvpp"
 
 # examples
 avio_dir_cmd_deps="avformat avutil"
