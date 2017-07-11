@@ -787,6 +787,7 @@ OBJS-$(CONFIG_HEVC_D3D11VA_HWACCEL)       += dxva2_hevc.o
 OBJS-$(CONFIG_HEVC_DXVA2_HWACCEL)         += dxva2_hevc.o
 OBJS-$(CONFIG_HEVC_VAAPI_HWACCEL)         += vaapi_hevc.o
 OBJS-$(CONFIG_HEVC_VDPAU_HWACCEL)         += vdpau_hevc.o
+OBJS-$(CONFIG_MJPEG_QSV_HWACCEL)          += qsvdec_jpeg.o
 OBJS-$(CONFIG_MPEG1_VDPAU_HWACCEL)        += vdpau_mpeg12.o
 OBJS-$(CONFIG_MPEG1_VIDEOTOOLBOX_HWACCEL) += videotoolbox.o
 OBJS-$(CONFIG_MPEG1_XVMC_HWACCEL)         += mpegvideo_xvmc.o
