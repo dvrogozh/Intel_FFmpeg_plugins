@@ -203,13 +203,11 @@ static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q, mfxBitstream *b
     param.mfx.CodecId = ret;
 
     ret = MFXVideoDECODE_DecodeHeader(q->session, bs, &param);
-    if (MFX_ERR_MORE_DATA==ret) {
-        return bs->DataOffset;
-    } else if (ret < 0) {
-        av_log(avctx, AV_LOG_ERROR, "Decode header error %d\n", ret);
+    if (ret < 0) {
+        if (ret != MFX_ERR_MORE_DATA)
+            av_log(avctx, AV_LOG_ERROR, "Decode header error %d\n", ret);
         return ff_qsv_error(ret);
     }
-    av_log(avctx, AV_LOG_INFO, "QSV DECODE: Decode Header\n");
 
     param.IOPattern   = q->iopattern;
     param.AsyncDepth  = q->async_depth;
