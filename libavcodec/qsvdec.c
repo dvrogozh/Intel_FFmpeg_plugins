@@ -153,9 +153,7 @@ static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q, mfxBitstream *b
     param.mfx.CodecId = ret;
 
     ret = MFXVideoDECODE_DecodeHeader(q->session, bs, &param);
-    if (MFX_ERR_MORE_DATA==ret) {
-        return bs->DataOffset;
-    } else if (ret < 0)
+    if (ret < 0)
         return ff_qsv_print_error(avctx, ret,
                                   "Error decoding stream header");
 
