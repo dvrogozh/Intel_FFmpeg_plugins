@@ -376,7 +376,7 @@ static int init_video_param(AVCodecContext *avctx, QSVEncContext *q)
     q->param.mfx.NumSlice           = avctx->slices;
     q->param.mfx.NumRefFrame        = FFMAX(0, avctx->refs);
     q->param.mfx.EncodedOrder       = 0;
-    q->param.mfx.BufferSizeInKB     = q->buffer_size/1000;
+    q->param.mfx.BufferSizeInKB     = q->buffer_size/8000;
 
     desc = av_pix_fmt_desc_get(sw_format);
     if (!desc)
