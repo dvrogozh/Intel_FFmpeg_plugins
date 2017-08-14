@@ -543,13 +543,18 @@ int ff_qsvvpp_free(FFQSVVPPContext **vpp)
     if (!s)
         return 0;
 
-    MFXVideoVPP_Close(s->session);
+    if (s->session) {
+        MFXVideoVPP_Close(s->session);
+        MFXClose(s->session);
+    }
 
     /* release all the resources */
     clear_frame_list(s->in_frame_list);
     clear_frame_list(s->out_frame_list);
     av_buffer_unref(&s->frames_ctx_ref);
     av_buffer_unref(&s->device_ctx_ref);
+    av_freep(&s->mem_ids_in);
+    av_freep(&s->mem_ids_out);
     av_freep(vpp);
 
     return 0;
