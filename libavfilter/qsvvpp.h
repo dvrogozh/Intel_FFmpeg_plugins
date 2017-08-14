@@ -22,6 +22,19 @@
 #include "avfilter.h"
 #include <mfx/mfxvideo.h>
 
+/* w or h = -n will be treated as factor n */
+#define eval_factor(ow, oh, link) do {\
+    int factor_w = 1, factor_h = 1; \
+    int iw = link->w, ih = link->h; \
+    if (ow < -1)           factor_w = -ow; \
+    if (oh < -1)           factor_h = -oh; \
+    if (ow < 0 && oh < 0)  ow = oh = 0; \
+    if (!ow)               ow = iw; \
+    if (!oh)               oh = ih; \
+    if (ow < 0)            ow = av_rescale(oh, iw, ih * factor_w) * factor_w; \
+    if (oh < 0)            oh = av_rescale(ow, ih, iw * factor_h) * factor_h; \
+} while (0);
+
 typedef struct FFQSVVPPContext FFQSVVPPContext;
 
 /* for callback function */
