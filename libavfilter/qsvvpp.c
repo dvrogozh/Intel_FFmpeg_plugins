@@ -543,7 +543,7 @@ int ff_qsvvpp_free(FFQSVVPPContext **vpp)
     if (!s)
         return 0;
 
-    if (s->session) {
+    if (!s->device_ctx_ref && s->session) {
         MFXVideoVPP_Close(s->session);
         MFXClose(s->session);
     }
