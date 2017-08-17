@@ -251,7 +251,6 @@ static int alloc_frame(AVCodecContext *avctx, QSVContext *q, QSVFrame *frame)
         if (ret < 0)
             return ret;
         frame->surface = (mfxFrameSurface1*)frame->frame->data[3];
-
     } else {
         frame->frame->width  = avctx->width;
         frame->frame->height = FFALIGN(avctx->height, 64);
@@ -268,6 +267,12 @@ static int alloc_frame(AVCodecContext *avctx, QSVContext *q, QSVFrame *frame)
 
         frame->surface = &frame->surface_internal;
     }
+
+    frame->surface->Data.ExtParam = &frame->ext_param;
+    frame->surface->Data.NumExtParam = 1;
+    frame->ext_param = (mfxExtBuffer*)&frame->dec_info;
+    frame->dec_info.Header.BufferId = MFX_EXTBUFF_DECODED_FRAME_INFO;
+    frame->dec_info.Header.BufferSz = sizeof(frame->dec_info);
 
     return 0;
 }
@@ -425,6 +430,8 @@ static int qsv_decode(AVCodecContext *avctx, QSVContext *q,
             return ret;
 
         outsurf = out_frame->surface;
+        outsurf->Data.ExtParam    = NULL;
+        outsurf->Data.NumExtParam = 0;
 
 #if FF_API_PKT_PTS
 FF_DISABLE_DEPRECATION_WARNINGS
@@ -443,6 +450,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
             !(outsurf->Info.PicStruct & MFX_PICSTRUCT_PROGRESSIVE);
         if (avctx->field_order == AV_FIELD_UNKNOWN)
             avctx->field_order = ff_qsv_map_picstruct(outsurf->Info.PicStruct);
+        frame->pict_type = ff_qsv_map_pictype(out_frame->dec_info.FrameType);
+        frame->key_frame = !!(out_frame->dec_info.FrameType & MFX_FRAMETYPE_IDR);
 
         *got_frame = 1;
     }
