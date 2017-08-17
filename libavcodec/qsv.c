@@ -211,6 +211,27 @@ enum AVFieldOrder ff_qsv_map_picstruct(int mfx_pic_struct)
     return field;
 }
 
+enum AVPictureType ff_qsv_map_pictype(int mfx_pic_type)
+{
+    enum AVPictureType type = AV_PICTURE_TYPE_NONE;
+    switch (mfx_pic_type & 0xF) {
+        case MFX_FRAMETYPE_I:
+            type = AV_PICTURE_TYPE_I;
+            break;
+        case MFX_FRAMETYPE_B:
+            type = AV_PICTURE_TYPE_B;
+            break;
+        case MFX_FRAMETYPE_P:
+            type = AV_PICTURE_TYPE_P;
+            break;
+        case MFX_FRAMETYPE_S:
+            type = AV_PICTURE_TYPE_S;
+            break;
+    }
+
+    return type;
+}
+
 static int qsv_load_plugins(mfxSession session, const char *load_plugins,
                             void *logctx)
 {
