@@ -546,6 +546,11 @@ static int get_surface(AVCodecContext *avctx, QSVContext *q, mfxFrameSurface1 **
             if (ret < 0)
                 return ret;
             *surf = frame->surface;
+            frame->surface->Data.NumExtParam = 1;
+            frame->surface->Data.ExtParam = frame->ext_buf;
+            frame->ext_buf[0] = (mfxExtBuffer *)&frame->dec_info;
+            frame->dec_info.Header.BufferId = MFX_EXTBUFF_DECODED_FRAME_INFO;
+            frame->dec_info.Header.BufferSz = sizeof(frame->dec_info);
             return 0;
         }
 
@@ -570,10 +575,14 @@ static int get_free_surface(AVCodecContext *avctx, QSVContext *q, mfxFrameSurfac
 			cur_frames = cur_frames->next;
 		}
 
-        if( *surf != NULL ){
+        if (*surf) {
+            cur_frames->surface->Data.NumExtParam = 1;
+            cur_frames->surface->Data.ExtParam = cur_frames->ext_buf;
+            cur_frames->ext_buf[0] = (mfxExtBuffer *)&cur_frames->dec_info;
+            cur_frames->dec_info.Header.BufferId = MFX_EXTBUFF_DECODED_FRAME_INFO;
+            cur_frames->dec_info.Header.BufferSz = sizeof(cur_frames->dec_info);
 			break;
-		}
-		else{
+		} else {
 			av_log( avctx, AV_LOG_ERROR, "waiting until there are free surface\n" );
 			av_usleep(1000);
 		}
@@ -610,6 +619,8 @@ static int do_sync_operation(AVCodecContext *avctx, QSVContext *q, AVFrame *fram
 	AVFrame *src_frame;
 	av_fifo_generic_read(q->async_fifo, &(out_frame), sizeof(out_frame), NULL);
 	out_frame->queued = 0;
+    out_frame->surface->Data.NumExtParam = 0;
+    out_frame->surface->Data.ExtParam = NULL;
 
         MFXVideoCORE_SyncOperation(q->session, out_frame->sync_point, 60000);
 
@@ -624,9 +635,9 @@ static int do_sync_operation(AVCodecContext *avctx, QSVContext *q, AVFrame *fram
                 if( ret < 0 ) return ret;
 	}
 
-	frame->width       = avctx->width;
-	frame->height      = avctx->height;
-	frame->format      = avctx->pix_fmt;
+        frame->width       = avctx->width;
+        frame->height      = avctx->height;
+        frame->format      = avctx->pix_fmt;
         frame->pkt_pts     = frame->pts = out_frame->surface->Data.TimeStamp;
         frame->repeat_pict =
             out_frame->surface->Info.PicStruct & MFX_PICSTRUCT_FRAME_TRIPLING ? 4 :
@@ -636,6 +647,8 @@ static int do_sync_operation(AVCodecContext *avctx, QSVContext *q, AVFrame *fram
             out_frame->surface->Info.PicStruct & MFX_PICSTRUCT_FIELD_TFF;
         frame->interlaced_frame =
             !(out_frame->surface->Info.PicStruct & MFX_PICSTRUCT_PROGRESSIVE);
+        frame->pict_type = ff_qsv_map_pictype(out_frame->dec_info.FrameType);
+        frame->key_frame = !!(out_frame->dec_info.FrameType & MFX_FRAMETYPE_IDR);
 
         *got_frame = 1;
     }

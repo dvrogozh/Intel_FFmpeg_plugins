@@ -20,6 +20,7 @@
 
 #include <mfx/mfxvideo.h>
 #include <mfx/mfxplugin.h>
+#include <mfx/mfxjpeg.h>
 
 #include <stdio.h>
 #include <string.h>
@@ -29,8 +30,6 @@
 
 #include "avcodec.h"
 #include "qsv_internal.h"
-
-#include "mfxjpeg.h"
 
 int g_gpucopy_mode = MFX_GPUCOPY_OFF;
 
@@ -372,3 +371,23 @@ int ff_qsv_clone_session(mfxSession from, mfxSession *to)
     return 0;
 }
 
+enum AVPictureType ff_qsv_map_pictype(int mfx_pic_type)
+{
+    enum AVPictureType type = AV_PICTURE_TYPE_NONE;
+    switch (mfx_pic_type & 0xF) {
+        case MFX_FRAMETYPE_I:
+            type = AV_PICTURE_TYPE_I;
+            break;
+        case MFX_FRAMETYPE_B:
+            type = AV_PICTURE_TYPE_B;
+            break;
+        case MFX_FRAMETYPE_P:
+            type = AV_PICTURE_TYPE_P;
+            break;
+        case MFX_FRAMETYPE_S:
+            type = AV_PICTURE_TYPE_S;
+            break;
+    }
+
+    return type;
+}

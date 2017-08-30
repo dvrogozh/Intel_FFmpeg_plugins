@@ -57,6 +57,8 @@ typedef struct QSVFrame {
     int queued;
     struct QSVFrame *next;
     int num;
+    mfxExtBuffer *ext_buf[1];
+    mfxExtDecodedFrameInfo dec_info;
 } QSVFrame;
 
 typedef struct QSVSession {
@@ -84,4 +86,6 @@ int ff_qsv_load_plugins(mfxSession session, const char *load_plugins);
 int ff_qsv_close_internal_session(QSVSession *qs);
 
 int ff_qsv_clone_session(mfxSession from, mfxSession *to);
+
+enum AVPictureType ff_qsv_map_pictype(int mfx_pic_type);
 #endif /* AVCODEC_QSV_INTERNAL_H */
