@@ -66,18 +66,11 @@ typedef struct {
     int out_width;
     int out_height;
 
-    int dpic;                   // destination picture structure
-                                // -1 = unkown
-                                // 0 = interlaced top field first
-                                // 1 = progressive
-                                // 2 = interlaced bottom field first
-
     int deinterlace;            // deinterlace mode : 0=off, 1=bob, 2=advanced
     int denoise;                // Enable Denoise algorithm. Level is the optional value from the interval [0; 100]
     int detail;                 // Enable Detail Enhancement algorithm.
                                 // Level is the optional value from the interval [0; 100]
     int async_depth;            // async dept used by encoder
-    int max_b_frames;           // maxiumum number of b frames used by encoder
 
     int use_crop;               // 1 = use crop; 0=none
     int crop_w;
@@ -103,13 +96,8 @@ static const AVOption vpp_options[] = {
     { "deinterlace", "deinterlace mode: 0=off, 1=bob, 2=advanced",             OFFSET(deinterlace),  AV_OPT_TYPE_INT, {.i64=0}, 0, MFX_DEINTERLACING_ADVANCED, .flags = FLAGS },
     { "denoise",     "denoise level [0, 100]",                                 OFFSET(denoise),      AV_OPT_TYPE_INT, {.i64=0}, 0, 100, .flags = FLAGS },
     { "detail",      "detail enhancement level [0, 100]",                      OFFSET(detail),       AV_OPT_TYPE_INT, {.i64=0}, 0, 100, .flags = FLAGS },
-    { "dpic",        "dest pic struct: 0=tff, 1=progressive [default], 2=bff", OFFSET(dpic),         AV_OPT_TYPE_INT, {.i64 = 1 }, 0, 2, .flags = FLAGS },
     { "framerate",   "output framerate",                                       OFFSET(framerate),    AV_OPT_TYPE_RATIONAL, { .dbl = 0.0 },0, DBL_MAX, .flags = FLAGS },
     { "async_depth", "Maximum processing parallelism [default = 4]",           OFFSET(async_depth),  AV_OPT_TYPE_INT, { .i64 = 4 }, 0, INT_MAX, .flags = FLAGS },
-    { "max_b_frames","Maximum number of b frames  [default = 3]",              OFFSET(max_b_frames), AV_OPT_TYPE_INT, { .i64 = 3 }, 0, INT_MAX, .flags = FLAGS },
-    { "default", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_GPUCOPY_DEFAULT }, MFX_GPUCOPY_DEFAULT, MFX_GPUCOPY_OFF, .flags = FLAGS, "gpu_copy" },
-    { "on", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_GPUCOPY_ON }, MFX_GPUCOPY_DEFAULT, MFX_GPUCOPY_OFF, .flags = FLAGS, "gpu_copy" },
-    { "off", NULL, 0, AV_OPT_TYPE_CONST, { .i64 = MFX_GPUCOPY_OFF }, MFX_GPUCOPY_DEFAULT, MFX_GPUCOPY_OFF, .flags = FLAGS, "gpu_copy" },
 
     { "procamp",     "Enable ProcAmp",                                         OFFSET(procamp),    AV_OPT_TYPE_INT,   {.i64 = 0}, 0, 1, .flags = FLAGS},
     { "hue",         "ProcAmp hue",                                            OFFSET(hue),        AV_OPT_TYPE_FLOAT, {.dbl = 0.0 }, -180.0, 180.0, .flags = FLAGS},
@@ -370,6 +358,7 @@ static int config_output(AVFilterLink *outlink)
     AVFilterContext *ctx = outlink->src;
     VPPContext      *vpp = ctx->priv;
     int              ret = 0;
+    AVFilterLink *inlink = ctx->inputs[0];
 
     outlink->w             = vpp->out_width;
     outlink->h             = vpp->out_height;
@@ -391,20 +380,30 @@ static int config_output(AVFilterLink *outlink)
     else
         vpp->qsv_param.vpp_param.IOPattern |= MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
 
-    ret = ff_qsvvpp_create(ctx, &vpp->qsv, &vpp->qsv_param);
+    if (vpp->use_frc || vpp->use_crop || vpp->deinterlace || vpp->denoise ||
+        vpp->detail || inlink->w != outlink->w || inlink->h != outlink->h)
+        ret = ff_qsvvpp_create(ctx, &vpp->qsv, &vpp->qsv_param);
+    else
+        av_log(ctx, AV_LOG_VERBOSE, "QSVVPP pass through mode.\n");
 
     return ret;
 }
 
 static int filter_frame(AVFilterLink *inlink, AVFrame *picref)
 {
-    int               ret  = 0;
-    AVFilterContext  *ctx         = inlink->dst;
-    VPPContext       *vpp         = ctx->priv;
+    int               ret = 0;
+    AVFilterContext  *ctx = inlink->dst;
+    VPPContext       *vpp = ctx->priv;
+    AVFilterLink *outlink = ctx->outputs[0];
 
-    ret = ff_qsvvpp_filter_frame(vpp->qsv, inlink, picref);
-
-    av_frame_free(&picref);
+    if (vpp->qsv) {
+        ret = ff_qsvvpp_filter_frame(vpp->qsv, inlink, picref);
+        av_frame_free(&picref);
+    } else {
+        if (picref->pts != AV_NOPTS_VALUE)
+            picref->pts = av_rescale_q(picref->pts, inlink->time_base, outlink->time_base);
+        ret = ff_filter_frame(outlink, picref);
+    }
 
     return ret;
 }
