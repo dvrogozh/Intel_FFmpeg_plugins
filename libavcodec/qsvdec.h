@@ -61,11 +61,13 @@ typedef struct QSVContext {
     uint32_t fourcc;
 #endif
     mfxFrameInfo frame_info;
+    AVBufferPool *pool;
 
     // options set by the caller
     int async_depth;
     int iopattern;
     int reinit_pending;
+    int gpu_copy;
 
     char *load_plugins;
 
