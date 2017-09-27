@@ -381,10 +381,13 @@ static int config_output(AVFilterLink *outlink)
         vpp->qsv_param.vpp_param.IOPattern |= MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
 
     if (vpp->use_frc || vpp->use_crop || vpp->deinterlace || vpp->denoise ||
-        vpp->detail || inlink->w != outlink->w || inlink->h != outlink->h)
+        vpp->detail || inlink->w != outlink->w || inlink->h != outlink->h) {
         ret = ff_qsvvpp_create(ctx, &vpp->qsv, &vpp->qsv_param);
-    else
+    } else {
         av_log(ctx, AV_LOG_VERBOSE, "QSVVPP pass through mode.\n");
+        if (inlink->hw_frames_ctx)
+            outlink->hw_frames_ctx = av_buffer_ref(inlink->hw_frames_ctx);
+    }
 
     return ret;
 }
