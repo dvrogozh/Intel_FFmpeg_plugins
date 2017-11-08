@@ -77,6 +77,16 @@ version 3.4.1:
 - ffmpeg: always init output stream before reaping filters
 - vc2enc_dwt: pad the temporary buffer by the slice size
 - lavu/arm: Check for have_vfp_vm instead of !have_vfpv3 for float_dsp_vfp
+||||||| parent of 1926f13... Merge commit '2fd6e7d077f590e4d7195356f9baeb271f8b9ae2'
+version <next>:
+- Bitstream filters for editing metadata in H.264, HEVC and MPEG-2 streams
+- Dropped support for OpenJPEG versions 2.0 and below. Using OpenJPEG now
+  requires 2.1 (or later) and pkg-config.
+- VDA dropped (use VideoToolbox instead)
+- MagicYUV encoder
+- Raw AMR-NB and AMR-WB demuxers
+- TiVo ty/ty+ demuxer
+- Intel QSV-accelerated MJPEG encoding
 
 version 3.4:
 - deflicker video filter
