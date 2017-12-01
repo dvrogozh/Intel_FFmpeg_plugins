@@ -115,6 +115,11 @@ typedef struct QSVMJPEGContext {
     QSVContext qsv;
 } QSVMJPEGContext;
 
+typedef struct QSVVP8Context {
+    AVClass *class;
+    QSVContext qsv;
+} QSVVP8Context;
+
 int ff_qsv_map_pixfmt(enum AVPixelFormat format);
 int ff_qsv_decode(AVCodecContext *s, QSVContext *q,
                   AVFrame *frame, int *got_frame,

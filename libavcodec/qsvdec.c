@@ -194,6 +194,12 @@ int av_qsv_pipeline_insert_vpp( AVCodecContext *av_dec_ctx, AVFilterContext* vpp
 		qsv = &(qsv_ctx->qsv);//.pCodecConnect(&(qsv_ctx->qsv), av_dec_ctx, av_enc_ctx);
     }
 
+    if ( strcmp(av_dec_ctx->codec->name, "vp8_qsv")==0 )
+    {
+        QSVVP8Context* qsv_ctx = (QSVVP8Context*) av_dec_ctx->priv_data;
+        qsv = &(qsv_ctx->qsv);
+    }
+
 	if(NULL == qsv->enc_ctx) return 0;
 	qsv->vpp = vpp;
 	vpp->session = qsv->session;
@@ -225,6 +231,11 @@ int av_qsv_pipeline_connect_codec( AVCodecContext *av_dec_ctx, AVCodecContext *a
     {
     	QSVVC1Context* qsv_ctx = (QSVVC1Context*) av_dec_ctx->priv_data;
 		qsv = &(qsv_ctx->qsv);//.pCodecConnect(&(qsv_ctx->qsv), av_dec_ctx, av_enc_ctx);
+    }
+
+    if ( strcmp(av_dec_ctx->codec->name, "vp8_qsv") ==0 ) {
+        QSVVP8Context* qsv_ctx = (QSVVP8Context*) av_dec_ctx->priv_data;
+        qsv = &(qsv_ctx->qsv);
     }
     
 	if(NULL == qsv) return -1;

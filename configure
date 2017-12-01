@@ -2484,6 +2484,9 @@ wmv3_dxva2_hwaccel_select="vc1_dxva2_hwaccel"
 wmv3_vaapi_hwaccel_select="vc1_vaapi_hwaccel"
 wmv3_vdpau_decoder_select="vc1_vdpau_decoder"
 wmv3_vdpau_hwaccel_select="vc1_vdpau_hwaccel"
+vp8_qsv_hwaccel_deps="libmfx"
+vp8_qsv_decoder_deps="libmfx"
+vp8_qsv_decoder_select="qsvdec vp8_qsv_hwaccel"
 
 # parsers
 h264_parser_select="h264_decoder"

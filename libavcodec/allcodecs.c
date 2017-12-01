@@ -113,6 +113,7 @@ void avcodec_register_all(void)
     REGISTER_HWACCEL(WMV3_DXVA2,        wmv3_dxva2);
     REGISTER_HWACCEL(WMV3_VAAPI,        wmv3_vaapi);
     REGISTER_HWACCEL(WMV3_VDPAU,        wmv3_vdpau);
+    REGISTER_HWACCEL(VP8_QSV,           vp8_qsv);
 
     /* video codecs */
     REGISTER_ENCODER(A64MULTI,          a64multi);
@@ -598,6 +599,7 @@ void avcodec_register_all(void)
     REGISTER_ENCODER(MJPEG_QSV,         mjpeg_qsv);
     REGISTER_ENCODER(LIBKVAZAAR,        libkvazaar);
     REGISTER_ENCODER(MPEG2_QSV,         mpeg2_qsv);
+    REGISTER_DECODER(VP8_QSV,           vp8_qsv);
 
     /* parsers */
     REGISTER_PARSER(AAC,                aac);
