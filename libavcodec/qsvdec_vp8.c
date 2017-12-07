@@ -31,6 +31,7 @@ static av_cold int qsv_decode_close(AVCodecContext *avctx)
 {
     QSVVP8Context *s = avctx->priv_data;
 
+    av_freep(&s->qsv.load_plugins);
     ff_qsv_decode_close(&s->qsv);
 
     return 0;
