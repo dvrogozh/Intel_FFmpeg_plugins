@@ -384,8 +384,8 @@ static int qsv_init_pool(AVHWFramesContext *ctx, uint32_t fourcc)
     int i, ret = 0;
 
     if (ctx->initial_pool_size <= 0) {
-        av_log(ctx, AV_LOG_ERROR, "QSV requires a fixed frame pool size\n");
-        return AVERROR(EINVAL);
+        av_log(ctx, AV_LOG_WARNING, "QSV requires a fixed frame pool size\n");
+        ctx->initial_pool_size = 64;
     }
 
     s->surfaces_internal = av_mallocz_array(ctx->initial_pool_size,
