@@ -72,7 +72,11 @@ int ff_qsv_profile_to_mfx(enum AVCodecID codec_id, int profile)
         return MFX_PROFILE_UNKNOWN;
     switch (codec_id) {
     case AV_CODEC_ID_H264:
+        return profile;
     case AV_CODEC_ID_HEVC:
+        if (profile != FF_PROFILE_HEVC_MAIN && profile != FF_PROFILE_HEVC_MAIN_10 &&
+            profile != FF_PROFILE_HEVC_MAIN_STILL_PICTURE && profile != FF_PROFILE_HEVC_REXT)
+            profile = FF_PROFILE_HEVC_MAIN;
         return profile;
     case AV_CODEC_ID_VC1:
         return 4 * profile + 1;
