@@ -310,8 +310,7 @@ static int qsv_decode(AVCodecContext *avctx, QSVContext *q,
         bs.DataLength = avpkt->size;
         bs.MaxLength  = bs.DataLength;
         bs.TimeStamp  = avpkt->pts;
-        if (avctx->field_order == AV_FIELD_UNKNOWN ||
-            avctx->field_order == AV_FIELD_PROGRESSIVE)
+        if (avctx->field_order == AV_FIELD_PROGRESSIVE)
             bs.DataFlag   |= MFX_BITSTREAM_COMPLETE_FRAME;
     }
 
@@ -497,6 +496,7 @@ int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
                      pkt->data, pkt->size, pkt->pts, pkt->dts,
                      pkt->pos);
 
+    avctx->field_order  = q->parser->field_order;
     /* TODO: flush delayed frames on reinit */
     if (q->parser->format       != q->orig_pix_fmt    ||
         FFALIGN(q->parser->coded_width, 16)  != FFALIGN(avctx->coded_width, 16) ||
@@ -521,7 +521,6 @@ int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
         avctx->height       = q->parser->height;
         avctx->coded_width  = FFALIGN(q->parser->coded_width, 16);
         avctx->coded_height = FFALIGN(q->parser->coded_height, 16);
-        avctx->field_order  = q->parser->field_order;
         avctx->level        = q->avctx_internal->level;
         avctx->profile      = q->avctx_internal->profile;
 
