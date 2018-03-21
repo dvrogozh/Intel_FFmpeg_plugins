@@ -103,8 +103,6 @@ static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q)
     mfxSession session = NULL;
     int iopattern = 0;
     mfxVideoParam param = { 0 };
-    int frame_width  = avctx->coded_width;
-    int frame_height = avctx->coded_height;
     int ret;
 
     desc = av_pix_fmt_desc_get(avctx->sw_pix_fmt);
@@ -160,8 +158,10 @@ static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q)
     param.mfx.FrameInfo.BitDepthChroma = desc->comp[0].depth;
     param.mfx.FrameInfo.Shift          = desc->comp[0].depth > 8;
     param.mfx.FrameInfo.FourCC         = q->fourcc;
-    param.mfx.FrameInfo.Width          = frame_width;
-    param.mfx.FrameInfo.Height         = frame_height;
+    param.mfx.FrameInfo.Width          = avctx->coded_width;
+    param.mfx.FrameInfo.Height         = avctx->coded_height;
+    param.mfx.FrameInfo.CropW          = avctx->width;
+    param.mfx.FrameInfo.CropH          = avctx->height;
     param.mfx.FrameInfo.ChromaFormat   = MFX_CHROMAFORMAT_YUV420;
 
     switch (avctx->field_order) {
