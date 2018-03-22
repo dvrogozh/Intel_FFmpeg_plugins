@@ -97,13 +97,22 @@ static int qsv_init_session(AVCodecContext *avctx, QSVContext *q, mfxSession ses
     return 0;
 }
 
-static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q)
+static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q, AVPacket *avpkt)
 {
     const AVPixFmtDescriptor *desc;
     mfxSession session = NULL;
     int iopattern = 0;
     mfxVideoParam param = { 0 };
     int ret;
+    mfxBitstream bs = { { { 0 } } };
+
+    if (avpkt->size) {
+        bs.Data       = avpkt->data;
+        bs.DataLength = avpkt->size;
+        bs.MaxLength  = bs.DataLength;
+        bs.TimeStamp  = avpkt->pts;
+    }else
+        return AVERROR_INVALIDDATA;
 
     desc = av_pix_fmt_desc_get(avctx->sw_pix_fmt);
     if (!desc)
@@ -150,35 +159,48 @@ static int qsv_decode_init(AVCodecContext *avctx, QSVContext *q)
     if (ret < 0)
         return ret;
 
-    param.mfx.CodecId      = ret;
-    param.mfx.CodecProfile = ff_qsv_profile_to_mfx(avctx->codec_id, avctx->profile);
-    param.mfx.CodecLevel   = avctx->level == FF_LEVEL_UNKNOWN ? MFX_LEVEL_UNKNOWN : avctx->level;
-
-    param.mfx.FrameInfo.BitDepthLuma   = desc->comp[0].depth;
-    param.mfx.FrameInfo.BitDepthChroma = desc->comp[0].depth;
-    param.mfx.FrameInfo.Shift          = desc->comp[0].depth > 8;
-    param.mfx.FrameInfo.FourCC         = q->fourcc;
-    param.mfx.FrameInfo.Width          = avctx->coded_width;
-    param.mfx.FrameInfo.Height         = avctx->coded_height;
-    param.mfx.FrameInfo.CropW          = avctx->width;
-    param.mfx.FrameInfo.CropH          = avctx->height;
-    param.mfx.FrameInfo.ChromaFormat   = MFX_CHROMAFORMAT_YUV420;
-
-    switch (avctx->field_order) {
-    case AV_FIELD_PROGRESSIVE:
-        param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
-        break;
-    case AV_FIELD_TT:
-        param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_FIELD_TFF;
-        break;
-    case AV_FIELD_BB:
-        param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_FIELD_BFF;
-        break;
-    default:
-        param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_UNKNOWN;
-        break;
+    if (avctx->codec_id == AV_CODEC_ID_MJPEG){
+        param.mfx.CodecId = ret;
+        ret = MFXVideoDECODE_DecodeHeader(q->session, &bs, &param);
+        if (ret < 0)
+            return ff_qsv_print_error(avctx, ret,
+                                      "Error decoding stream header");
+        avctx->width        = param.mfx.FrameInfo.CropW;
+        avctx->height       = param.mfx.FrameInfo.CropH;
+        avctx->coded_width  = param.mfx.FrameInfo.Width;
+        avctx->coded_height = param.mfx.FrameInfo.Height;
+        avctx->level        = param.mfx.CodecProfile;
+        avctx->profile      = param.mfx.CodecLevel;
+    }else {
+        param.mfx.CodecId      = ret;
+        param.mfx.CodecProfile = ff_qsv_profile_to_mfx(avctx->codec_id, avctx->profile);
+        param.mfx.CodecLevel   = avctx->level == FF_LEVEL_UNKNOWN ? MFX_LEVEL_UNKNOWN : avctx->level;
+    
+        param.mfx.FrameInfo.BitDepthLuma   = desc->comp[0].depth;
+        param.mfx.FrameInfo.BitDepthChroma = desc->comp[0].depth;
+        param.mfx.FrameInfo.Shift          = desc->comp[0].depth > 8;
+        param.mfx.FrameInfo.FourCC         = q->fourcc;
+        param.mfx.FrameInfo.Width          = avctx->coded_width;
+        param.mfx.FrameInfo.Height         = avctx->coded_height;
+        param.mfx.FrameInfo.CropW          = avctx->width;
+        param.mfx.FrameInfo.CropH          = avctx->height;
+        param.mfx.FrameInfo.ChromaFormat   = MFX_CHROMAFORMAT_YUV420;
+    
+        switch (avctx->field_order) {
+        case AV_FIELD_PROGRESSIVE:
+            param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
+            break;
+        case AV_FIELD_TT:
+            param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_FIELD_TFF;
+            break;
+        case AV_FIELD_BB:
+            param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_FIELD_BFF;
+            break;
+        default:
+            param.mfx.FrameInfo.PicStruct = MFX_PICSTRUCT_UNKNOWN;
+            break;
+        }
     }
-
     param.IOPattern   = q->iopattern;
     param.AsyncDepth  = q->async_depth;
     param.ExtParam    = q->ext_buffers;
@@ -498,9 +520,25 @@ int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
 
     avctx->field_order  = q->parser->field_order;
     /* TODO: flush delayed frames on reinit */
-    if (q->parser->format       != q->orig_pix_fmt    ||
+
+    if (!q->initialized && avctx->codec_id == AV_CODEC_ID_MJPEG){
+        enum AVPixelFormat pix_fmts[3] = { AV_PIX_FMT_QSV,
+                                           AV_PIX_FMT_NV12,
+                                           AV_PIX_FMT_NONE };
+        ret = ff_get_format(avctx, pix_fmts);
+        if (ret < 0)
+            goto reinit_fail;
+
+        avctx->pix_fmt = ret;
+
+        ret = qsv_decode_init(avctx, q, pkt);
+        if (ret < 0)
+            goto reinit_fail;
+        q->initialized = 1;
+    } else if (avctx->codec_id  != AV_CODEC_ID_MJPEG  &&
+        (q->parser->format       != q->orig_pix_fmt    ||
         FFALIGN(q->parser->coded_width, 16)  != FFALIGN(avctx->coded_width, 16) ||
-        FFALIGN(q->parser->coded_height, 16) != FFALIGN(avctx->coded_height, 16)) {
+        FFALIGN(q->parser->coded_height, 16) != FFALIGN(avctx->coded_height, 16))) {
         enum AVPixelFormat pix_fmts[3] = { AV_PIX_FMT_QSV,
                                            AV_PIX_FMT_NONE,
                                            AV_PIX_FMT_NONE };
@@ -539,7 +577,7 @@ int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
             avctx->coded_height = FFALIGN(q->parser->coded_height, 32);
         }
 
-        ret = qsv_decode_init(avctx, q);
+        ret = qsv_decode_init(avctx, q, pkt);
         if (ret < 0)
             goto reinit_fail;
     }
@@ -554,4 +592,5 @@ reinit_fail:
 void ff_qsv_decode_flush(AVCodecContext *avctx, QSVContext *q)
 {
     q->orig_pix_fmt = AV_PIX_FMT_NONE;
+    q->initialized = 0;
 }

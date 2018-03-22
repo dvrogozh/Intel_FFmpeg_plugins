@@ -89,6 +89,10 @@ static av_cold int qsv_decode_init(AVCodecContext *avctx)
             return AVERROR(ENOMEM);
     }
 #endif
+#if CONFIG_MJPEG_QSV_DECODER
+    if (avctx->codec_id == AV_CODEC_ID_MJPEG)
+        s->qsv.initialized = 0;
+#endif
 
     s->packet_fifo = av_fifo_alloc(sizeof(AVPacket));
     if (!s->packet_fifo) {
