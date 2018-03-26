@@ -1114,7 +1114,7 @@ static int submit_frame(QSVEncContext *q, const AVFrame *frame,
         }
     } else {
         /* make a copy if the input is not padded as libmfx requires */
-        if (frame->height & 31 || frame->linesize[0] & (q->width_align - 1)) {
+        if (frame->height & (q->height_align - 1) || frame->linesize[0] & (q->width_align - 1)) {
             qf->frame->height = FFALIGN(frame->height, q->height_align);
             qf->frame->width  = FFALIGN(frame->width, q->width_align);
 
