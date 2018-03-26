@@ -412,6 +412,10 @@ static int init_video_param_jpeg(AVCodecContext *avctx, QSVEncContext *q)
     q->param.mfx.FrameInfo.BitDepthChroma = desc->comp[0].depth;
     q->param.mfx.FrameInfo.Shift          = desc->comp[0].depth > 8;
 
+    q->width_align = q->height_align = 16;
+    q->param.mfx.FrameInfo.Width = FFALIGN(avctx->width, q->width_align);
+    q->param.mfx.FrameInfo.Height = FFALIGN(avctx->height, q->height_align);
+
     q->param.mfx.FrameInfo.Width  = FFALIGN(avctx->width, 16);
     q->param.mfx.FrameInfo.Height = FFALIGN(avctx->height, 16);
 
