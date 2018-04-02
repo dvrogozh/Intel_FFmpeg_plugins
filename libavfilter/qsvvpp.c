@@ -413,7 +413,7 @@ static int init_vpp_session(AVFilterContext *avctx, QSVVPPContext *s)
     AVHWDeviceContext *device_ctx;
     AVQSVDeviceContext *device_hwctx;
     mfxHDL handle;
-    mfxHandleType handle_type;
+    mfxHandleType handle_type = MFX_HANDLE_D3D9_DEVICE_MANAGER;
     mfxVersion ver;
     mfxIMPL impl;
     int ret, i;

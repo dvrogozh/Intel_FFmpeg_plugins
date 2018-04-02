@@ -1238,7 +1238,7 @@ static int encode_frame(AVCodecContext *avctx, QSVEncContext *q,
                0 : ff_qsv_print_error(avctx, ret, "Error during encoding");
     }
 
-    if (ret == MFX_WRN_INCOMPATIBLE_VIDEO_PARAM && frame->interlaced_frame)
+    if (ret == MFX_WRN_INCOMPATIBLE_VIDEO_PARAM && frame && frame->interlaced_frame)
         print_interlace_msg(avctx, q);
 
     if (*sync) {

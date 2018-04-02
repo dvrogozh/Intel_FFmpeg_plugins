@@ -274,7 +274,7 @@ static int init_out_session(AVFilterContext *ctx)
     int opaque = !!(in_frames_hwctx->frame_type & MFX_MEMTYPE_OPAQUE_FRAME);
 
     mfxHDL handle = NULL;
-    mfxHandleType handle_type;
+    mfxHandleType handle_type = MFX_HANDLE_D3D9_DEVICE_MANAGER;
     mfxVersion ver;
     mfxIMPL impl;
     mfxVideoParam par;

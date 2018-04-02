@@ -360,7 +360,7 @@ static int setup_layout(AVFilterContext *ctx)
 }
 static int have_alpha_planar(AVFilterLink *link)
 {
-    enum AVPixelFormat pix_fmt;
+    enum AVPixelFormat pix_fmt = link->format;
     const AVPixFmtDescriptor *desc;
     AVHWFramesContext *fctx;
 
