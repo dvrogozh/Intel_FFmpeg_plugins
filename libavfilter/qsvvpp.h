@@ -43,6 +43,13 @@
     if (ow < 0)            ow = av_rescale(oh, iw, ih * factor_w) * factor_w; \
     if (oh < 0)            oh = av_rescale(ow, ih, iw * factor_h) * factor_h; \
 } while (0);
+#define QSV_VERSION_ATLEAST(MAJOR, MINOR)   \
+    (MFX_VERSION_MAJOR > (MAJOR) ||         \
+     MFX_VERSION_MAJOR == (MAJOR) && MFX_VERSION_MINOR >= (MINOR))
+
+#define QSV_RUNTIME_VERSION_ATLEAST(MFX_VERSION, MAJOR, MINOR) \
+    (MFX_VERSION.Major > (MAJOR)) ||                           \
+    (MFX_VERSION.Major == (MAJOR) && MFX_VERSION.Minor >= (MINOR))
 
 typedef struct QSVVPPContext QSVVPPContext;
 

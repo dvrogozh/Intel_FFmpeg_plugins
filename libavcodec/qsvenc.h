@@ -50,11 +50,13 @@
 #define QSV_HAVE_ICQ    QSV_VERSION_ATLEAST(1, 8)
 #define QSV_HAVE_VCM    QSV_VERSION_ATLEAST(1, 8)
 #define QSV_HAVE_QVBR   QSV_VERSION_ATLEAST(1, 11)
+#define QSV_HAVE_MF     0
 #else
 #define QSV_HAVE_AVBR   0
 #define QSV_HAVE_ICQ    0
 #define QSV_HAVE_VCM    0
 #define QSV_HAVE_QVBR   0
+#define QSV_HAVE_MF     QSV_VERSION_ATLEAST(1, 25)
 #endif
 
 #if !QSV_HAVE_LA_DS
@@ -112,11 +114,15 @@ typedef struct QSVEncContext {
     mfxExtCodingOption3 extco3;
 #endif
 
+#if QSV_HAVE_MF
+    mfxExtMultiFrameParam   extmfp;
+    mfxExtMultiFrameControl extmfc;
+#endif
     mfxExtOpaqueSurfaceAlloc opaque_alloc;
     mfxFrameSurface1       **opaque_surfaces;
     AVBufferRef             *opaque_alloc_buf;
 
-    mfxExtBuffer  *extparam_internal[2 + QSV_HAVE_CO2+QSV_HAVE_CO3];
+    mfxExtBuffer  *extparam_internal[2 + QSV_HAVE_CO2 + QSV_HAVE_CO3 + (QSV_HAVE_MF * 2)];
     int         nb_extparam_internal;
 
     mfxExtBuffer **extparam;
@@ -192,6 +198,10 @@ typedef struct QSVEncContext {
     unsigned short mv_cost_sf;
 
     int a53_cc;
+
+#if QSV_HAVE_MF
+    int mfmode;
+#endif
     char *load_plugins;
     SetEncodeCtrlCB *set_encode_ctrl_cb;
 } QSVEncContext;

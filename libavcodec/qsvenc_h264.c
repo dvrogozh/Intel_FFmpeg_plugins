@@ -173,6 +173,10 @@ static const AVOption options[] = {
     { "glo_motion_bias_adj","Enables global motion bias", OFFSET(qsv.enable_global_motion_bias), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
     { "mv_cost_sf",         "MV cost scaling ratio", OFFSET(qsv.mv_cost_sf), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 3, VE },
 
+#if QSV_HAVE_MF
+    { "mfmode", "Multi-Frame Mode", OFFSET(qsv.mfmode), AV_OPT_TYPE_INT, { .i64 = MFX_MF_AUTO }, 0, INT_MAX, VE },
+#endif
+
     { NULL },
 };
 
