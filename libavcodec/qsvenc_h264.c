@@ -93,6 +93,8 @@ static int qsv_enc_frame(AVCodecContext *avctx, AVPacket *pkt,
 static av_cold int qsv_enc_close(AVCodecContext *avctx)
 {
     QSVH264EncContext *q = avctx->priv_data;
+    av_log(avctx, AV_LOG_INFO, "encoded %d frames, avarge qp is %.2f\n",
+        avctx->frame_number,(double)q->qsv.sum_frame_qp /avctx->frame_number);
 
     return ff_qsv_enc_close(avctx, &q->qsv);
 }
