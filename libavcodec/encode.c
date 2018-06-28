@@ -238,8 +238,8 @@ int attribute_align_arg avcodec_encode_audio2(AVCodecContext *avctx,
             if (ret >= 0)
                 avpkt->data = avpkt->buf->data;
         }
-
-        avctx->frame_number++;
+        if (frame)
+            avctx->frame_number++;
     }
 
     if (ret < 0 || !*got_packet_ptr) {
@@ -343,7 +343,8 @@ int attribute_align_arg avcodec_encode_video2(AVCodecContext *avctx,
                 avpkt->data = avpkt->buf->data;
         }
 
-        avctx->frame_number++;
+        if (frame)
+            avctx->frame_number++;
     }
 
     if (ret < 0 || !*got_packet_ptr)
