@@ -1252,8 +1252,10 @@ static int encode_frame(AVCodecContext *avctx, QSVEncContext *q,
     if (!sync) {
         av_freep(&bs);
  #if QSV_VERSION_ATLEAST(1, 9)
-        if (avctx->codec_id == AV_CODEC_ID_H264)
+        if (avctx->codec_id == AV_CODEC_ID_H264) {
             av_freep(&enc_info);
+            av_freep(&enc_buf);
+        }
  #endif
         av_packet_unref(&new_pkt);
         return AVERROR(ENOMEM);
@@ -1272,8 +1274,10 @@ static int encode_frame(AVCodecContext *avctx, QSVEncContext *q,
         av_packet_unref(&new_pkt);
         av_freep(&bs);
 #if QSV_VERSION_ATLEAST(1, 9)
-        if (avctx->codec_id == AV_CODEC_ID_H264)
+        if (avctx->codec_id == AV_CODEC_ID_H264) {
             av_freep(&enc_info);
+            av_freep(&enc_buf);
+        }
 #endif
         av_freep(&sync);
         return (ret == MFX_ERR_MORE_DATA) ?
@@ -1292,8 +1296,10 @@ static int encode_frame(AVCodecContext *avctx, QSVEncContext *q,
         av_packet_unref(&new_pkt);
         av_freep(&bs);
 #if QSV_VERSION_ATLEAST(1, 9)
-        if (avctx->codec_id == AV_CODEC_ID_H264)
+        if (avctx->codec_id == AV_CODEC_ID_H264) {
             av_freep(&enc_info);
+            av_freep(&enc_buf);
+        }
 #endif
     }
 
@@ -1316,6 +1322,7 @@ int ff_qsv_encode(AVCodecContext *avctx, QSVEncContext *q,
         mfxSyncPoint *sync;
 #if QSV_VERSION_ATLEAST(1, 9)
         mfxExtAVCEncodedFrameInfo *enc_info;
+        mfxExtBuffer **enc_buf;
 #endif
 
 
@@ -1348,10 +1355,12 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
 #if QSV_VERSION_ATLEAST(1, 9)
         if (avctx->codec_id == AV_CODEC_ID_H264) {
+            enc_buf = bs->ExtParam;
             enc_info = (mfxExtAVCEncodedFrameInfo *)(*bs->ExtParam);
             av_log(avctx, AV_LOG_DEBUG, "QP is %d \n", enc_info->QP);
             q->sum_frame_qp += enc_info->QP;
             av_freep(&enc_info);
+            av_freep(&enc_buf);
         }
 #endif
         av_freep(&bs);
